@@ -1,0 +1,14 @@
+SELECT e.Reason, c.StandardValue, COUNT(e.LeaseEventID) AS CountOfEvent
+FROM LeaseEvent e
+LEFT JOIN CodeMapping c
+ON c.SourceValue = e.Reason
+AND c.Entity = 'LeaseEvent'
+AND c.Attribute = 'Reason'
+AND c.ActiveInd = 1
+AND c.DL_IsCurrent = 1
+WHERE e.LeaseEventName = 'Notice Given'
+AND e.Reason IS NOT NULL
+AND e.ActiveInd = 1
+AND e.DL_IsCurrent = 1
+GROUP BY e.Reason, c.StandardValue
+ORDER BY CountOfEvent DESC
