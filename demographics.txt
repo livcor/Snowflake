@@ -1,0 +1,157 @@
+WITH demo AS 
+( 
+          SELECT    pm.propertymgmtcompanyname, 
+                    pm.livcorbupropertyidentifier, 
+                    pm.propertyname, 
+                    u.unitname, 
+                    u.bedroomcount, 
+                    u.bathroomcount, 
+                    rate.leaserateamount, 
+                    l.leaseid, 
+                    l.leasingentityid,
+                    l.leasestartdate, 
+                    l.moveindate, 
+                    l.moveoutdate, 
+                    l.leaseenddate, 
+                    rate.leaseratetypename, 
+                    le.employer, 
+                    le.income, 
+                    cm.standardvalue, 
+                    Row_number() OVER ( partition BY  l.leaseid,  l.moveindate, u.unitname, pm.propertyname, rate.leaseratetypename ORDER BY l.leasestartdate desc) AS dup_leaseid,
+                    CASE 
+                              WHEN le.income = 0 THEN '0' 
+                              WHEN le.income > 0
+                              AND       le.income <= 2500 THEN '1 to 2500' 
+                              WHEN le.income > 2500 
+                              AND       le.income <= 7500 THEN '2500 to 7500 ' 
+                              WHEN le.income > 7500 
+                              AND       le.income <= 12500 THEN '7500 to 12500' 
+                              WHEN le.income > 12500 
+                              AND       le.income <= 15000 THEN '12500 to 15000'
+                              WHEN le.income> 15000 THEN '15000+' 
+                              ELSE 'N/A' 
+                    END AS income_buckets 
+          FROM      propertymapping_a pm 
+          LEFT JOIN unit_a u 
+          ON        pm.propertyassetid = u.propertyassetid 
+          LEFT JOIN lease_a l 
+          ON        u.unitid = l.unitid 
+          LEFT JOIN leaserate_a rate 
+          ON        rate.leaseid = l.leaseid 
+          LEFT JOIN leasingentityreltn_a lr 
+          ON        lr.primaryleid = l.leasingentityid 
+          LEFT JOIN leasingentity_a le 
+          ON        lr.relatedleid = le.leasingentityid 
+          LEFT JOIN codemapping_a cm 
+          ON        cm.sourcevalue = rate.leaseratetypename 
+          AND       cm.entity = 'LeaseRate' 
+          AND       cm.attribute = 'LeaseRateTypeName' 
+          AND       ( 
+                              cm.source = l.source 
+                    OR        cm.source = 'ALL' ) 
+          WHERE     1 = 1 
+          AND       pm.investment <> 'Caiola' 
+          AND       pm.reportingstatus <> 'Dispo' 
+          AND       pm.unitcount > 0 
+          AND       cm.standardvalue = 'Actual Rent' ) 
+//SELECT   d.income_buckets, 
+//         d.bedroomcount , 
+//         count(d.income_buckets) 
+//FROM     demo d 
+//WHERE    dup_leaseid = 1 
+//GROUP BY d.income_buckets, 
+//         d.bedroomcount 
+//ORDER BY d.income_buckets, d.bedroomcount ASC
+SELECT   * 
+FROM     demo 
+WHERE    1=1
+AND      dup_leaseid = 1 
+AND      income IS NOT NULL 
+AND      income >= 0 
+AND      leaseratetypename not in ('acrental', 'EMPRENT', 'hrentcr', 'rentrec', 'rentfree', 'rentf-Ot', 'recrent', 'clubrent', 'afford')
+AND      leasestartdate >= '2019-01-01' 
+AND      leasestartdate <= '2020-07-31' 
+
+ORDER BY propertymgmtcompanyname, 
+         propertyname
+
+========================================================================================
+
+WITH demo AS 
+( 
+          SELECT    l.leaseid, 
+                    l.leasingentityid ,
+                    pm.propertymgmtcompanyname, 
+                    pm.livcorbupropertyidentifier, 
+                    pm.propertyname, 
+                    u.unitname, 
+                    u.bedroomcount, 
+                    u.bathroomcount, 
+                    rate.leaserateamount, 
+                    l.leasestartdate, 
+                    l.moveindate, 
+                    l.moveoutdate, 
+                    l.leaseenddate, 
+                    rate.leaseratetypename, 
+                    le.employer, 
+                    le.income, 
+                    cm.standardvalue, 
+                    Row_number() OVER ( partition BY  l.leasingentityid,  l.moveindate, u.unitname, pm.propertyname, rate.leaseratetypename ORDER BY l.leasestartdate desc) AS dup_leaseid,
+                    CASE 
+                              WHEN le.income = 0 THEN '0' 
+                              WHEN le.income > 0
+                              AND       le.income <= 2500 THEN '1 to 2500' 
+                              WHEN le.income > 2500 
+                              AND       le.income <= 7500 THEN '2500 to 7500 ' 
+                              WHEN le.income > 7500 
+                              AND       le.income <= 12500 THEN '7500 to 12500' 
+                              WHEN le.income > 12500 
+                              AND       le.income <= 15000 THEN '12500 to 15000'
+                              WHEN le.income> 15000 THEN '15000+' 
+                              ELSE 'N/A' 
+                    END AS income_buckets 
+          FROM      propertymapping_a pm 
+          LEFT JOIN unit_a u 
+          ON        pm.propertyassetid = u.propertyassetid 
+          LEFT JOIN lease_a l 
+          ON        u.unitid = l.unitid 
+          LEFT JOIN leaserate_a rate 
+          ON        rate.leaseid = l.leaseid 
+          LEFT JOIN leasingentityreltn_a lr 
+          ON        lr.primaryleid = l.leasingentityid 
+          LEFT JOIN leasingentity_a le 
+          ON        lr.relatedleid = le.leasingentityid 
+          LEFT JOIN codemapping_a cm 
+          ON        cm.sourcevalue = rate.leaseratetypename 
+          AND       cm.entity = 'LeaseRate' 
+          AND       cm.attribute = 'LeaseRateTypeName' 
+          AND       ( 
+                              cm.source = l.source 
+                    OR        cm.source = 'ALL' ) 
+          WHERE     1 = 1 
+          AND       pm.investment <> 'Caiola' 
+          AND       pm.reportingstatus <> 'Dispo' 
+          AND       pm.unitcount > 0 
+          AND       cm.standardvalue = 'Actual Rent'
+)
+//SELECT   d.income_buckets, 
+//         d.bedroomcount , 
+//         count(d.income_buckets) 
+//FROM     demo d 
+//WHERE    dup_leaseid = 1 
+//GROUP BY d.income_buckets, 
+//         d.bedroomcount 
+//ORDER BY d.income_buckets, d.bedroomcount ASC
+SELECT   * 
+FROM     demo 
+WHERE    1=1
+AND      dup_leaseid = 1 
+AND      income IS NOT NULL 
+AND      income >= 0 
+AND      leaseratetypename not in ('acrental', 'EMPRENT', 'hrentcr', 'rentrec', 'rentfree', 'rentf-Ot', 'recrent', 'clubrent', 'afford', 'crent', 'comrent', 'prorent')
+AND      moveindate >= '2018-01-01' 
+AND      moveindate <= '2020-07-09' 
+--and      propertyname LIKE '%Pine Prairie%'
+
+ORDER BY propertymgmtcompanyname, 
+        propertyname

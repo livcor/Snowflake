@@ -1,0 +1,72 @@
+SELECT
+    p.PropertyMgmtCompanyName    As "Operator"
+  , p.PropertyName               As "Asset Name"
+  , p.LIVCORBUPROPERTYIDENTIFIER As "BU Number"
+  , agents.LEASINGAGENT          As "Leasing Agent"
+  , agents.FirstObserved
+  , agents.LastObserved
+  , agents.NumberObserved
+FROM
+    PROPERTYMAPPING_A p
+    LEFT JOIN
+        (
+            SELECT
+                le.LEASINGAGENT
+              , q.PROPERTYASSETID
+              , MIN(le.ETLCREATEDDATE)    As FirstObserved
+              , MAX(le.ETLCREATEDDATE)    As LastObserved
+              , COUNT(le.LEASINGENTITYID) As NumberObserved
+            FROM
+                LeasingEntity_A le
+                JOIN
+                    (
+                        SELECT
+                            LEASINGENTITYID
+                          , PROPERTYASSETID
+                        FROM
+                            LEASINGENTITYEVENT_A
+                        WHERE
+                            LEASINGENTITYID     IS NOT NULL
+                            AND PROPERTYASSETID IS NOT NULL
+                        UNION
+                        SELECT
+                            l.LEASINGENTITYID
+                          , u.PROPERTYASSETID
+                        FROM
+                            LEASE_A l
+                            JOIN
+                                UNIT_A u
+                                on
+                                    l.UNITID = u.UNITID
+                        UNION
+                        SELECT
+                            ler.RELATEDLEID
+                          , u.PROPERTYASSETID
+                        FROM
+                            LEASE_A l
+                            JOIN
+                                UNIT_A u
+                                on
+                                    l.UNITID = u.UNITID
+                            JOIN
+                                LEASINGENTITYRELTN_A ler
+                                on
+                                    l.LEASINGENTITYID = ler.PRIMARYLEID
+                    )
+                    q
+                    on
+                        q.LEASINGENTITYID = le.LEASINGENTITYID
+            GROUP BY
+                le.LEASINGAGENT
+              , q.PROPERTYASSETID
+        )
+        agents
+        ON
+            p.PROPERTYASSETID = agents.PROPERTYASSETID
+WHERE
+    p.UnitCount            > 0
+    AND p.ReportingStatus <> 'Dispo'
+ORDER BY
+    "Operator" ASC
+  , "Asset Name" ASC
+  , LastObserved DESC

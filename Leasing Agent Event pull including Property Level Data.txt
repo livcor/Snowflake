@@ -1,0 +1,48 @@
+--Created by Brian Chan and Matt Lomas on 6/17/2020
+--Leasing Agent Event Pull including Property Level Data
+--Duplicates found in Leasing Agents depending on the property, filtered out leasing events with a null event date
+
+SELECT 
+
+DISTINCT E.LeasingEntityEventName as LE_LEASING_EVENT
+,E.Source as LE_SOURCE
+,PM.PROPERTYNAME as PM_PROPERTY
+,PM.PropertyMGMTCompanyName as PM_OPERATOR
+,PM.LivCorBUPropertyIdentifier as PM_BU
+,EE.LEASINGAGENT as E_LEASING_AGENT
+,COUNT(E.LeasingEntityEventName) as LE_COUNT_OF_LEASING_EVENT
+
+FROM LeasingEntityEvent e
+
+LEFT JOIN PropertyMapping PM
+ON E.PropertyAssetID = PM.PropertyAssetID
+AND PM.ActiveInd = 1
+AND PM.DL_IsCurrent = 1
+
+LEFT JOIN LeasingEntity EE
+ON E.LeasingEntityID = EE.LeasingEntityID
+AND EE.ActiveInd = 1
+AND EE.DL_IsCurrent = 1
+
+WHERE 1=1
+AND e.ActiveInd = 1
+AND e.DL_IsCurrent = 1
+AND E.EventDate IS NOT NULL
+AND EE.LeasingAgent <> ''
+
+GROUP BY E.LeasingEntityEventName
+,E.Source
+,EE.LEASINGAGENT
+,PM.PROPERTYNAME
+,PM.PropertyMGMTCompanyName
+,PM.LivCorBUPropertyIdentifier
+
+ORDER BY 
+
+COUNT(E.LeasingEntityEventName) desc
+,E.Source
+,EE.LEASINGAGENT
+,PM.PropertyMGMTCompanyName
+,PM.PROPERTYNAME
+,PM.LivCorBUPropertyIdentifier
+,E.LeasingEntityEventName

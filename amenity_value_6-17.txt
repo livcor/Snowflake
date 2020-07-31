@@ -1,0 +1,82 @@
+SELECT PMAP.propertymgmtcompanyname    AS Operator, 
+       PMAP.propertyname               AS Property_Name, 
+       PMAP.livcorbupropertyidentifier AS BU, 
+       UMAP.unitname                   AS Unit_Name, 
+       AMN.amenitycode                 AS Amenity_Code, 
+       AMN.amenityname                 AS Amenity_Name, 
+       VAL.amenityvalue, 
+       VAL.amenityvaluetype 
+FROM   "DNA_SDW_PD"."LIV_ODS"."AMENITY" AMN 
+       LEFT JOIN "DNA_SDW_PD"."LIV_ODS"."AMENITYVALUE" VAL 
+              ON AMN.amenityid = VAL.amenityid 
+                 AND VAL.dl_iscurrent = 1 
+                 AND VAL.activeind = 1 
+                 AND VAL.amenityvaluetype = 'Current_Charge' 
+       LEFT JOIN "DNA_SDW_PD"."LIV_ODS"."PROPERTYMAPPING" PMAP 
+              ON AMN.propertyassetid = PMAP.propertyassetid 
+                 AND PMAP.dl_iscurrent = 1 
+                 AND PMAP.activeind = 1 
+       LEFT JOIN "DNA_SDW_PD"."LIV_ODS"."UNIT" UMAP 
+              ON AMN.unitid = UMAP.unitid 
+                 AND UMAP.activeind = 1 
+                 AND UMAP.dl_iscurrent = 1 
+WHERE  AMN.activeind = 1 
+       AND AMN.dl_iscurrent = 1 
+       AND AMN.amenityname <> '' 
+GROUP  BY UMAP.unitname, 
+          AMN.amenitycode, 
+          PMAP.propertymgmtcompanyname, 
+          PMAP.propertyname, 
+          PMAP.livcorbupropertyidentifier, 
+          AMN.amenityname, 
+          VAL.amenityvalue, 
+          VAL.amenityvaluetype 
+ORDER  BY PMAP.propertymgmtcompanyname, 
+          PMAP.propertyname, 
+          PMAP.livcorbupropertyidentifier, 
+          AMN.amenityname, 
+          AMN.amenitycode, 
+          UMAP.unitname 
+
+================================================
+
+with mark as (SELECT pm.propertymgmtcompanyname as OPERATOR, 
+       pm.propertyname as PROPERTY_NAME, 
+       pm.livcorbupropertyidentifier as BU, 
+       u.unitname as UNIT_NAME, 
+       amn.amenitycode as AMENITY_CODE_1,
+       cm.standardvalue,
+       amn.amenityname as AMENITY_NAME, 
+       val.amenityvalue as AMENITY_VALUE, 
+       val.amenityvaluetype as AMENITY_TYPE,
+       Row_number() OVER ( partition BY  pm.livcorbupropertyidentifier,u.unitname,amn.amenitycode,amn.amenityname ORDER BY u.unitname) AS dup
+FROM   propertymapping_a pm 
+       LEFT JOIN amenity_a amn 
+              ON amn.propertyassetid = pm.propertyassetid 
+                 AND amn.amenityname <> '' 
+       LEFT JOIN amenityvalue_a val 
+              ON amn.amenityid = val.amenityid 
+                 AND val.amenityvaluetype = 'Current_Charge' 
+       LEFT JOIN unit_a u 
+              ON amn.unitid = u.unitid 
+               LEFT JOIN codemapping_a cm 
+             ON amn.amenitycode = cm.sourcevalue 
+                 AND cm.entity = 'Amenity' 
+                 AND cm.attribute = 'AmenityCode' 
+                 AND (cm.source = UPPER(REPLACE(amn.source , ' ',''))
+                        or cm.source = 'ALL' )
+WHERE  1 = 1 
+       AND pm.investment <> 'Caiola' 
+       AND pm.reportingstatus <> 'Dispo' 
+       AND pm.unitcount > 0 
+      
+       
+ORDER  BY pm.propertymgmtcompanyname, 
+          pm.propertyname, 
+          pm.livcorbupropertyidentifier, 
+          AMN.amenityname, 
+          AMN.amenitycode, 
+          u.unitname)
+                
+          select * from mark
+          where dup = 1

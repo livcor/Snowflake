@@ -1,20 +1,3 @@
-SELECT e.Reason, c.StandardValue, COUNT(e.LeaseEventID) AS CountOfEvent
-FROM LeaseEvent e
-LEFT JOIN CodeMapping c
-ON c.SourceValue = e.Reason
-AND c.Entity = 'LeaseEvent'
-AND c.Attribute = 'Reason'
-AND c.ActiveInd = 1
-AND c.DL_IsCurrent = 1
-WHERE e.LeaseEventName = 'Notice Given'
-AND e.Reason IS NOT NULL
-AND e.ActiveInd = 1
-AND e.DL_IsCurrent = 1
-GROUP BY e.Reason, c.StandardValue
-ORDER BY CountOfEvent DESC
-
-=======================================================
-
 WITH ls
      AS (SELECT pm.propertymgmtcompanyname, 
                 pm.livcorbupropertyidentifier, 
@@ -49,9 +32,9 @@ WITH ls
                 Count(*) 
          FROM   ls
          WHERE  1 = 1 
-                --and moveoutdate is not null  
+                --and reasonformoveout is not null  
                 AND moveoutdate >= ( '2020-01-01' ) 
-                AND moveoutdate <= ( '2020-05-31' ) 
+                AND moveoutdate <= ( '2020-03-31' ) 
          GROUP  BY leaseid, 
                    propertymgmtcompanyname, 
                    livcorbupropertyidentifier, 
@@ -60,12 +43,12 @@ WITH ls
 SELECT propertymgmtcompanyname, 
        livcorbupropertyidentifier, 
        propertyname      
-      ,Count(*) as count_of_event
+      ,Count(*) 
 FROM   rfmo 
 WHERE  1 = 1 
-       AND propertyname = 'Arches at Hidden Creek' 
+       --AND propertyname = 'Brooks Landing' 
        AND livcorbupropertyidentifier IS NOT NULL 
 GROUP  BY propertymgmtcompanyname, 
         livcorbupropertyidentifier, 
          propertyname
-ORDER  BY count_of_event DESC 
+ORDER  BY Count(*) DESC 

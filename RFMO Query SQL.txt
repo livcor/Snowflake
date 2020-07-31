@@ -1,0 +1,37 @@
+WITH mark 
+     AS (SELECT pm.propertymgmtcompanyname, 
+                pm.livcorbupropertyidentifier, 
+                pm.propertyname, 
+                u.unitname, 
+                l.leaseid, 
+                le.reason, 
+                le.leaseeventname, 
+         l.moveoutdate,
+                le.eventdate,
+                Row_number() 
+                  OVER ( 
+                    partition BY pm.livcorbupropertyidentifier, u.unitname, 
+                  l.leaseid 
+                    ORDER BY le.eventdate DESC) AS dup_leaseid 
+         FROM   propertymapping_a pm 
+                LEFT JOIN unit_a u 
+                       ON pm.propertyassetid = u.propertyassetid 
+                LEFT JOIN lease_a l 
+                       ON u.unitid = l.unitid 
+                LEFT JOIN leaseevent_a le 
+                       ON le.leaseid = l.leaseid 
+                          AND le.reason IS NOT NULL 
+                          AND le.eventdate IS NOT NULL
+         WHERE  1 = 1 
+                AND pm.investment <> 'Caiola' 
+                AND pm.reportingstatus <> 'Dispo' 
+                AND pm.unitcount > 0 
+//                 and  pm.propertymgmtcompanyname = 'Greystar' 
+                --AND pm.propertyname = 'West End at City Center' 
+                AND l.moveoutdate >= ( '2020-04-01' ) 
+                AND l.moveoutdate <= ( '2020-06-30' ) 
+                AND l.moveoutdate IS NOT NULL) 
+SELECT  *
+FROM   mark
+WHERE  1=1
+AND     dup_leaseid = 1 
