@@ -1,0 +1,57 @@
+WITH a 
+     AS (SELECT pm.propertymgmtcompanyname, 
+                pm.propertyname, 
+                pm.livcorbupropertyidentifier, 
+                lee.leasingentityid, 
+                lee.leasingentityeventname  AS leads, 
+                lee.eventdate               AS leads_date, 
+                lee2.event_name             AS applied, 
+                lee2.eventdate              AS applied_date, 
+                lee3.leasingentityeventname AS stat, 
+                lee3.eventdate              AS stat_date 
+         FROM   propertymapping_a pm 
+                LEFT JOIN leasingentityevent_a lee 
+                       ON lee.propertyassetid = pm. propertyassetid 
+                          AND lee.leasingentityeventname = 'First_Contacted_On' 
+                          AND lee.leasingentityid <> 0 
+                          AND lee.eventdate IS NOT NULL 
+                LEFT JOIN (SELECT leasingentityid,                      --INNER
+                                   eventdate, 
+                                   CASE 
+                                     WHEN leasingentityeventname = 'AppliedDate' 
+                                   THEN 
+                                     'Date_Applied' 
+                                     ELSE leasingentityeventname 
+                                   END AS event_name 
+                            FROM   leasingentityevent_a) lee2 
+                        ON lee.leasingentityid = lee2.leasingentityid 
+                           AND lee2.event_name = 'Date_Applied' 
+                LEFT JOIN (SELECT leasingentityid, 
+                                  eventdate, 
+                                  leasingentityeventname 
+                           FROM   leasingentityevent_a 
+                           WHERE  leasingentityeventname IN ( 
+                                  'Date_Approved', 'Date_Denied' ) 
+                                  AND eventdate IS NOT NULL) lee3 
+                       ON lee.leasingentityid = lee3.leasingentityid 
+                          AND lee2.leasingentityid = lee3.leasingentityid 
+         WHERE  1 = 1 
+                AND pm.investment <> 'Caiola' 
+                AND pm.reportingstatus <> 'Dispo' 
+                AND pm.unitcount > 0 
+                AND pm.propertyname = '55 West' 
+        --and lee.leasingentityid = '7885099191465558709' 
+        ), 
+     b 
+     AS (SELECT *, 
+                Row_number() 
+                  OVER ( 
+                    partition BY livcorbupropertyidentifier, leasingentityid, 
+                  leads, 
+                  applied, 
+                  stat 
+                    ORDER BY leads_date, applied_date, stat_date ) AS dup 
+         FROM   a) 
+SELECT * 
+FROM   b 
+WHERE  dup = 1 

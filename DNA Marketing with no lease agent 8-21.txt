@@ -1,0 +1,174 @@
+//	Title:    	Marketing Data Query
+//	Authors:	Brian Chan and Matt Lomas
+//	Date Created: 	8/21/2020
+//	Description:    Marketing Data Query (Leads, Tours, Apps, Leases, etc.) including Property, BU and Lead Source
+//	Revision Hist: 	None
+
+set StartDataDateRange = to_date('2020-05-01', 'YYYY-MM-DD');
+set EndDataDateRange =to_date('2020-07-31', 'YYYY-MM-DD');
+
+set StartDate = to_date('2020-06-01', 'YYYY-MM-DD');
+set EndDate = to_date('2020-06-30', 'YYYY-MM-DD');
+//set BUName = ''
+//set OperatorName = ''
+// Add BU by uncommenting line 164
+// Add Operator by uncommenting line 165
+
+WITH A AS 
+( 
+          SELECT    e.leasingentityeventname      AS le_leasing_event, 
+                    e.leasingentityid             AS leasingentityid, 
+                    Cast(eventdate AS DATE)       AS eventdate, 
+                    e.source                      AS le_source, 
+                    pm.propertyname               AS pm_property, 
+                    pm.propertymgmtcompanyname    AS pm_operator, 
+                    pm.livcorbupropertyidentifier AS pm_bu, 
+                    le.leadsource                 AS leadsource, 
+                CASE 
+                  WHEN e.leasingentityeventname = 'AppliedDate' THEN 
+                  'Date_Applied' 
+                    WHEN e.leasingentityeventname = 'CancelDeniedDate' THEN 
+                  'Date_Canceled' 
+                  ELSE e.leasingentityeventname 
+                END                           AS event_name 
+          FROM      leasingentityevent_a e 
+          LEFT JOIN leasingentity_a le 
+          ON        le.leasingentityid = e.leasingentityid 
+          AND       le.leadsource <> '' 
+          LEFT JOIN propertymapping_a pm 
+          ON        e.propertyassetid = pm.propertyassetid 
+          AND       pm.investment <> 'Caiola' 
+          AND       pm.reportingstatus <> 'Dispo' 
+          AND       pm.unitcount > 0 
+          WHERE     1 = 1 
+          AND       e.eventdate IS NOT NULL
+          AND       e.eventdate >= $StartDataDateRange 
+          AND       e.eventdate <= $EndDataDateRange), 
+
+B AS 
+( 
+         SELECT   event_name, 
+                  leasingentityid, 
+                  eventdate, 
+                  le_source, 
+                  pm_property, 
+                  pm_operator, 
+                  pm_bu, 
+                  leadsource 
+         FROM     A
+         WHERE    1 = 1 
+         AND      leadsource IS NOT NULL 
+         ORDER BY pm_property, 
+                  pm_operator, 
+                  pm_bu ) 
+, residentdata AS 
+( 
+         SELECT   leasingentityid, 
+                  le_source, 
+                  pm_property, 
+                  pm_operator, 
+                  pm_bu, 
+                  max( 
+                  CASE 
+                           WHEN event_name = 'First_Contacted_On' THEN eventdate 
+                  END) leaddate, 
+                  max( 
+                  CASE 
+                           WHEN event_name = 'Date_Show' THEN eventdate 
+                  END) tourdate, 
+                  max( 
+                  CASE 
+                           WHEN event_name = 'Date_Denied' THEN eventdate 
+                  END) denieddate, 
+                  max( 
+                  CASE 
+                           WHEN event_name = 'Date_Applied' THEN eventdate 
+                  END) applieddate, 
+                  max( 
+                  CASE 
+                           WHEN event_name = 'Date_Approved' THEN eventdate 
+                  END) approveddate, 
+                  max( 
+                  CASE 
+                           WHEN event_name = 'Date_Canceled' THEN eventdate 
+                  END) canceleddate 
+         FROM     B
+         GROUP BY leasingentityid, 
+                  le_source, 
+                  pm_property, 
+                  pm_operator, 
+                  pm_bu)
+                  
+         SELECT   
+         le_source, 
+         pm_property, 
+         pm_operator, 
+         pm_bu, 
+         Sum( 
+         CASE 
+                  WHEN ( 
+                                    leaddate >= $StartDate
+                           AND      leaddate <= $EndDate) THEN 1 
+                  ELSE 0 
+         END) AS Leads, 
+         Sum( 
+         CASE 
+                  WHEN ( 
+                                    tourdate >= $StartDate
+                           AND      tourdate <= $EndDate) THEN 1 
+                  ELSE 0 
+         END) AS Tours, 
+         Sum( 
+         CASE 
+                  WHEN ( 
+                                    applieddate >= $StartDate
+                           AND      applieddate <= $EndDate) THEN 1 
+                  ELSE 0 
+         END) AS Apps, 
+         Sum( 
+         CASE 
+                  WHEN ( 
+                                    denieddate >= $StartDate
+                           AND      denieddate <= $EndDate) THEN 1 
+                  ELSE 0 
+         END) AS Denials, 
+         Sum( 
+         CASE 
+                  WHEN ( 
+                                    canceleddate >= $StartDate 
+                           AND      canceleddate <= $EndDate) THEN 1 
+                  ELSE 0 
+         END) AS Cancels, 
+         Sum( 
+         CASE 
+                  WHEN ( 
+                                    approveddate >= $StartDate
+                           AND      approveddate <= $EndDate) THEN 1 
+                  ELSE 0 
+         END) AS Gross_Leases, 
+         Sum( 
+         CASE 
+                  WHEN ( 
+                                    ( 
+                                             approveddate > canceleddate 
+                                    AND      ( 
+                                                      approveddate >= $StartDate
+                                             AND      approveddate <= $EndDate)) 
+                           OR       ( 
+                                             ( 
+                                                      approveddate >= $StartDate 
+                                             AND      approveddate <= $EndDate) 
+                                    AND      canceleddate IS NULL)) THEN 1 
+                  ELSE 0 
+         END) AS Net_Leases 
+FROM     residentdata 
+//         WHERE PM_BU = $BUNAME
+//         WHERE pm_operator = $OPERATORNAME
+        
+GROUP BY le_source, 
+         pm_property, 
+         pm_operator, 
+         pm_bu
+ORDER BY pm_operator, 
+         pm_property, 
+         pm_bu

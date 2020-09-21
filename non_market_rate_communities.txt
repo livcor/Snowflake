@@ -1,0 +1,197 @@
+Brian's Version 
+
+WITH mark 
+     AS (SELECT l.leaseid, 
+                l.leasingentityid, 
+                pm.propertymgmtcompanyname, 
+                pm.livcorbupropertyidentifier, 
+                pm.propertyname, 
+                u.unitname, 
+                u.floorplan, 
+                u.squarefootage, 
+                l.moveindate, 
+                l.moveoutdate, 
+                l.leasestartdate, 
+                l.leaseenddate, 
+                u.marketrentrate, 
+                l.alternativerent, 
+                rate.leaseratetypename, 
+                rate.leaserateamount, 
+                rate.ratestartdate, 
+                rate.rateenddate,
+                CONCAT(pm.propertyname, u.unitname ) as concat_bu_unit,
+         DENSE_RANK() OVER(partition by concat_bu_unit ORDER BY l.leasestartdate desc) as dup
+         FROM   propertymapping_a pm 
+                LEFT JOIN unit_a u 
+                       ON pm.propertyassetid = u.propertyassetid 
+                LEFT JOIN lease_a l 
+                       ON u.unitid = l.unitid and l.leasestartdate is not null
+                LEFT JOIN leaserate_a rate 
+                       ON rate.leaseid = l.leaseid 
+         --AND rate.leaseratetypename <> 'rent' 
+         WHERE  1 = 1 
+                AND pm.investment <> 'Caiola' 
+                AND pm.reportingstatus <> 'Dispo' 
+                AND pm.unitcount > 0 
+                AND rate.leaseratetypename IS NOT NULL 
+              --  AND pm.propertyname LIKE '%Creekside Village%' 
+               -- AND unitname = 'A10' 
+                --AND l.moveindate IS NOT NULL 
+          
+         ORDER  BY pm.propertyname, 
+                   u.unitname, 
+                   l.leasestartdate DESC
+       ) 
+SELECT *
+FROM mark
+where 1=1
+and dup = 1 
+and propertyname LIKE '%Creekside%' 
+
+=============================================
+
+Matt's Version
+
+WITH mark 
+     AS (SELECT pm.propertymgmtcompanyname, 
+                pm.livcorbupropertyidentifier, 
+                pm.propertyname, 
+                pm.validfrom, 
+                pm.validto, 
+                u.unitname, 
+                u.floorplan, 
+                u.squarefootage, 
+                l.leaseid, 
+                l.leaseterm, 
+                l.renewallease, 
+                l.moveindate,
+                l.moveoutdate,
+                l.leasestartdate, 
+                l.leaseenddate, 
+                u.marketrentrate,
+                rate.leaserateamount, 
+                l.alternativerent, 
+                l.leasingentityid, 
+                rate.leaseratetypename, 
+                Row_number() 
+                  OVER ( 
+                    partition BY pm.livcorbupropertyidentifier, u.unitname, 
+                  l.renewallease, 
+                  l.leasestartdate, l.leasingentityid, rate.leaseratetypename 
+                    ORDER BY l.leasestartdate DESC) AS dup 
+         FROM   propertymapping pm 
+                LEFT JOIN unit u 
+                       ON u.propertyassetid = pm.propertyassetid 
+                          AND u.dl_iscurrent = 1 
+                LEFT JOIN lease l 
+                       ON l.unitid = u.unitid 
+                          AND l.dl_iscurrent = 1 
+                --and l.leasestartdate >= '2019-01-01'   and l.leasestartdate <= '2020-08-25'   
+                LEFT JOIN leaserate rate 
+                       ON rate.leaseid = l.leaseid 
+                          AND rate.dl_iscurrent = 1 
+                          AND rate.leaseratetypename = 'rent' 
+         WHERE  1 = 1 
+                AND pm.investment <> 'Caiola' 
+                AND pm.reportingstatus <> 'Dispo' 
+                AND pm.unitcount > 0 
+                AND pm.dl_iscurrent = 1 
+                AND l.leasingentityid IS NOT NULL 
+        -- AND u.unitname = '619'  
+        ), 
+     a 
+     AS (SELECT *, 
+                Row_number() 
+                  OVER ( 
+                    partition BY unitname, propertyname, leasestartdate 
+                    ORDER BY leasestartdate DESC, validfrom DESC) AS sort 
+         FROM   mark 
+         WHERE  dup = 1 --and leaseratetypename is not NULL  
+         ORDER  BY unitname, 
+                   leasestartdate), 
+     b 
+     AS (SELECT *, 
+                Row_number() 
+                  OVER ( 
+                    partition BY unitname, propertyname 
+                    ORDER BY leasestartdate DESC) AS grab_two 
+         FROM   a 
+         WHERE  sort = 1), 
+     c 
+     AS (SELECT * 
+         FROM   b 
+         WHERE  grab_two IN ( 1 )), 
+     d 
+     AS (SELECT 
+                propertymgmtcompanyname,
+                livcorbupropertyidentifier, 
+                propertyname, 
+                unitname, 
+                squarefootage, 
+        
+        floorplan,
+                Max(CASE 
+                      WHEN grab_two = '1' THEN leaseterm 
+                    END) AS LEASETERM_1, 
+          Max(CASE 
+                      WHEN grab_two = '1' THEN moveindate
+                    END) AS MOVEINDATE_1, 
+                Max(CASE 
+                      WHEN grab_two = '1' THEN moveoutdate
+                    END) AS MOVEOUTDATE_1, 
+                Max(CASE 
+                      WHEN grab_two = '1' THEN leasestartdate 
+                    END) AS LEASESTARTDATE_1, 
+                Max(CASE 
+                      WHEN grab_two = '1' THEN leaseenddate 
+                    END) AS LEASEENDDATE_1, 
+                Max(CASE 
+                      WHEN grab_two = '1' THEN leasingentityid 
+                    END) AS LEASINGENTITYID_1, 
+                Max(CASE 
+                      WHEN grab_two = '1' THEN marketrentrate
+                    END) AS MARKETRENTRATE_1, 
+                Max(CASE 
+                      WHEN grab_two = '1' THEN renewallease 
+                    END) AS RENEWALLEASE_1, 
+                Max(CASE 
+                      WHEN grab_two = '1' THEN leaseid 
+                    END) AS LeaseID_1 
+         FROM   c 
+         GROUP  BY propertymgmtcompanyname,
+         livcorbupropertyidentifier, 
+                   propertyname, 
+                   unitname, 
+                   squarefootage,
+         floorplan
+       
+         ORDER  BY livcorbupropertyidentifier, 
+                   propertyname, 
+                   unitname, 
+                   squarefootage) 
+SELECT propertymgmtcompanyname,
+       livcorbupropertyidentifier, 
+       propertyname, 
+       unitname, 
+       squarefootage, 
+       floorplan, 
+       leaseterm_1,
+       moveindate_1,
+         moveoutdate_1,
+       leasestartdate_1, 
+       leaseenddate_1, 
+       leasingentityid_1, 
+       
+       renewallease_1, 
+       leaseid_1,
+      marketrentrate_1,
+       rate.leaseratetypename, 
+       rate.leaserateamount, 
+       rate.ratestartdate, 
+       rate.rateenddate 
+FROM   d 
+       LEFT JOIN leaserate_a rate 
+              ON rate.leaseid = d.leaseid_1 
+              
+              where propertyname LIKE '%Creekside Village%' 
+              order by unitname

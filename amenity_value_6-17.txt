@@ -80,3 +80,45 @@ ORDER  BY pm.propertymgmtcompanyname,
                 
           select * from mark
           where dup = 1
+
+==========================================================================
+with mark as (SELECT pm.propertymgmtcompanyname as OPERATOR, 
+       pm.propertyname as PROPERTY_NAME, 
+       pm.livcorbupropertyidentifier as BU, 
+       u.unitname as UNIT_NAME, 
+       amn.amenitycode as AMENITY_CODE_1,
+      -- cm.standardvalue,
+       amn.amenityname as AMENITY_NAME, 
+       val.amenityvalue as AMENITY_VALUE, 
+       val.amenityvaluetype as AMENITY_TYPE,
+       Row_number() OVER ( partition BY  pm.livcorbupropertyidentifier,u.unitname,amn.amenitycode,amn.amenityname ORDER BY u.unitname) AS dup
+FROM   propertymapping_a pm 
+       LEFT JOIN amenity_a amn 
+              ON amn.propertyassetid = pm.propertyassetid 
+                 AND amn.amenityname <> '' and amn.amenityname <> 'Rent'
+       LEFT JOIN amenityvalue_a val 
+              ON amn.amenityid = val.amenityid 
+                 AND val.amenityvaluetype = 'Current_Charge' 
+       LEFT JOIN unit_a u 
+              ON amn.unitid = u.unitid 
+          --     LEFT JOIN codemapping_a cm 
+           --  ON amn.amenitycode = cm.sourcevalue 
+            --     AND cm.entity = 'Amenity' 
+             --    AND cm.attribute = 'AmenityCode' 
+              --   AND (cm.source = UPPER(REPLACE(amn.source , ' ',''))
+               --         or cm.source = 'ALL' )
+WHERE  1 = 1 
+       AND pm.investment <> 'Caiola' 
+       AND pm.reportingstatus <> 'Dispo' 
+       AND pm.unitcount > 0 
+      
+       
+ORDER  BY pm.propertymgmtcompanyname, 
+          pm.propertyname, 
+          pm.livcorbupropertyidentifier, 
+          AMN.amenityname, 
+          AMN.amenitycode, 
+          u.unitname)
+                
+             select operator, property_name, bu, unit_name, amenity_code_1, amenity_name, amenity_value, amenity_type from mark
+          where dup = 1 and amenity_code_1 is not NULL and amenity_name is not NULL
