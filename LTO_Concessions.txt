@@ -1,0 +1,704 @@
+WITH mark 
+     AS (SELECT pm.propertymgmtcompanyname, 
+                pm.livcorbupropertyidentifier, 
+                pm.propertyname, 
+                pm.validfrom, 
+                pm.validto, 
+                u.unitname, 
+                u.floorplan, 
+                u.squarefootage, 
+                u.bedroomcount, 
+                u.bathroomcount, 
+                ue.uniteventname, 
+                l.leaseterm, 
+                l.renewallease, 
+                l.leasestartdate, 
+                l.leaseenddate, 
+                rate.leaserateamount, 
+                l.alternativerent, 
+                l.leasingentityid, 
+                rate.leaseratetypename, 
+                rate_conc.conc                      AS concessions, 
+                -- rate_conc.leaserateamount          AS conc_rate,  
+                Row_number() 
+                  OVER ( 
+                    partition BY pm.livcorbupropertyidentifier, u.unitname, 
+                  ue.uniteventname, 
+                  l.renewallease, l.leasestartdate, l.leasingentityid, 
+                  rate.leaseratetypename 
+                    ORDER BY l.leasestartdate DESC) AS dup 
+         FROM   propertymapping pm 
+                LEFT JOIN unit u 
+                       ON u.propertyassetid = pm.propertyassetid 
+                          AND u.dl_iscurrent = 1 
+                          AND ( u.isexclusionflag IS NULL 
+                                 OR u.isexclusionflag <> '-1' ) 
+                LEFT JOIN unitevent_a ue 
+                       ON u.unitid = ue.unitid 
+                          AND ue.uniteventname = 'Occupied No Notice' 
+                          AND ue.dl_iscurrent = 1 
+                LEFT JOIN lease l 
+                       ON l.unitid = u.unitid 
+                          AND l.dl_iscurrent = 1 
+                --and l.leasestartdate >= '2019-01-01'   and l.leasestartdate <= '2020-08-25'   
+                LEFT JOIN leaserate rate 
+                       ON rate.leaseid = l.leaseid 
+                          AND rate.dl_iscurrent = 1 
+                          AND rate.leaseratetypename = 'rent' 
+                LEFT JOIN (SELECT Listagg(DISTINCT( r.leaseratetypename ) 
+                                                  || ' ' 
+                                                  || r.leaserateamount, ';') AS 
+                                  conc, 
+                                  --listagg(distinct r.leaseratetypename,',') as leaseratetypename,  
+                                  r.leaseid, 
+                                  --  listagg(distinct r.leaserateamount,',') as leaserateamount,  
+                                  Listagg(cm.standardvalue, ',') 
+                           FROM   leaserate r 
+                                  LEFT JOIN codemapping_a cm 
+                                         ON r.leaseratetypename = cm.sourcevalue 
+                                            AND r.dl_iscurrent = 1 
+                           WHERE  cm.standardvalue = 'Concession' 
+                           --AND r.leaserateamount < 0 
+                           GROUP  BY r.leaseid) AS rate_conc 
+                       ON rate_conc.leaseid = l.leaseid 
+         WHERE  1 = 1 
+                AND pm.investment <> 'Caiola' 
+                AND pm.reportingstatus <> 'Dispo' 
+                AND pm.unitcount > 0 
+                AND pm.propertyname LIKE '%Sabal Palm%' 
+                AND pm.dl_iscurrent = 1 
+                AND l.leasingentityid IS NOT NULL 
+        -- AND u.unitname = '19-103'    
+        ), 
+     a 
+     AS (SELECT *, 
+                Row_number() 
+                  OVER ( 
+                    partition BY unitname, propertyname, leasestartdate 
+                    ORDER BY leasestartdate DESC, validfrom DESC) AS sort 
+         FROM   mark 
+         WHERE  dup = 1 
+                AND leaseratetypename IS NOT NULL 
+         ORDER  BY unitname, 
+                   leasestartdate), 
+     b 
+     AS (SELECT *, 
+                Row_number() 
+                  OVER ( 
+                    partition BY unitname, propertyname 
+                    ORDER BY leasestartdate DESC) AS grab_two 
+         FROM   a 
+         WHERE  sort = 1), 
+     c 
+     AS (SELECT * 
+         FROM   b 
+         WHERE  grab_two IN ( 1, 2 )), 
+     d 
+     AS (SELECT c.livcorbupropertyidentifier, 
+                c.propertyname, 
+                c.unitname, 
+                c.squarefootage, 
+                c.bedroomcount, 
+                c.bathroomcount, 
+                Max(CASE 
+                      WHEN grab_two = '1' THEN c.validfrom 
+                    END) AS VALIDFROM_1, 
+                Max(CASE 
+                      WHEN grab_two = '1' THEN c.validto 
+                    END) AS VALIDTO_1, 
+                Max(CASE 
+                      WHEN grab_two = '1' THEN c.floorplan 
+                    END) AS FLOORPLAN_1, 
+                Max(CASE 
+                      WHEN grab_two = '1' THEN c.uniteventname 
+                    END) AS UNITEVENTNAME_1, 
+                Max(CASE 
+                      WHEN grab_two = '1' THEN c.leaseterm 
+                    END) AS LEASETERM_1, 
+                Max(CASE 
+                      WHEN grab_two = '1' THEN c.leasestartdate 
+                    END) AS LEASESTARTDATE_1, 
+                Max(CASE 
+                      WHEN grab_two = '1' THEN c.leaseenddate 
+                    END) AS LEASEENDDATE_1, 
+                Max(CASE 
+                      WHEN grab_two = '1' THEN c.leaserateamount 
+                    END) AS LEASERATEAMOUNT_1, 
+                Max(CASE 
+                      WHEN grab_two = '1' THEN c.alternativerent 
+                    END) AS ALTERNATIVERENT_1, 
+                Max(CASE 
+                      WHEN grab_two = '1' THEN c.leasingentityid 
+                    END) AS LEASINGENTITYID_1, 
+                Max(CASE 
+                      WHEN grab_two = '1' THEN c.concessions 
+                    END) AS CONCESSIONS_1, 
+                --   Max(CASE  
+                --  WHEN grab_two = '1' THEN c.conc_rate  
+                --  END) AS CONC_RATE_1,  
+                Max(CASE 
+                      WHEN grab_two = '1' THEN c.leaseratetypename 
+                    END) AS LEASERATETYPENAME_1, 
+                Max(CASE 
+                      WHEN grab_two = '1' THEN c.propertymgmtcompanyname 
+                    END) AS PROPERTYMGMTCOMPANYNAME_1, 
+                Max(CASE 
+                      WHEN grab_two = '1' THEN c.renewallease 
+                    END) AS RENEWALLEASE_1, 
+                Max(CASE 
+                      WHEN grab_two = '2' THEN c.validfrom 
+                    END) AS VALIDFROM_2, 
+                Max(CASE 
+                      WHEN grab_two = '2' THEN c.validto 
+                    END) AS VALIDTO_2, 
+                Max(CASE 
+                      WHEN grab_two = '2' THEN c.floorplan 
+                    END) AS FLOORPLAN_2, 
+                Max(CASE 
+                      WHEN grab_two = '2' THEN c.uniteventname 
+                    END) AS UNITEVENTNAME_2, 
+                Max(CASE 
+                      WHEN grab_two = '2' THEN c.leaseterm 
+                    END) AS LEASETERM_2, 
+                Max(CASE 
+                      WHEN grab_two = '2' THEN c.leasestartdate 
+                    END) AS LEASESTARTDATE_2, 
+                Max(CASE 
+                      WHEN grab_two = '2' THEN c.leaseenddate 
+                    END) AS LEASEENDDATE_2, 
+                Max(CASE 
+                      WHEN grab_two = '2' THEN c.leaserateamount 
+                    END) AS LEASERATEAMOUNT_2, 
+                Max(CASE 
+                      WHEN grab_two = '2' THEN c.alternativerent 
+                    END) AS ALTERNATIVERENT_2, 
+                Max(CASE 
+                      WHEN grab_two = '2' THEN c.concessions 
+                    END) AS CONCESSIONS_2, 
+                --    Max(CASE  
+                --      WHEN grab_two = '2' THEN c.conc_rate  
+                --   END) AS CONC_RATE_2,  
+                Max(CASE 
+                      WHEN grab_two = '2' THEN c.leasingentityid 
+                    END) AS LEASINGENTITYID_2, 
+                Max(CASE 
+                      WHEN grab_two = '2' THEN c.leaseratetypename 
+                    END) AS LEASERATETYPENAME_2, 
+                Max(CASE 
+                      WHEN grab_two = '2' THEN c.propertymgmtcompanyname 
+                    END) AS PROPERTYMGMTCOMPANYNAME_2, 
+                Max(CASE 
+                      WHEN grab_two = '2' THEN c.renewallease 
+                    END) AS RENEWALLEASE_2 
+         FROM   c 
+         GROUP  BY c.livcorbupropertyidentifier, 
+                   c.propertyname, 
+                   c.unitname, 
+                   c.squarefootage, 
+                   c.bedroomcount, 
+                   c.bathroomcount 
+         ORDER  BY c.livcorbupropertyidentifier, 
+                   c.propertyname, 
+                   c.unitname, 
+                   c.squarefootage, 
+                   c.bedroomcount, 
+                   c.bathroomcount) 
+SELECT pma.propertymgmtcompanyname AS Current_Operator, 
+       d.* 
+FROM   d 
+       LEFT JOIN propertymapping_a pma 
+              ON d.livcorbupropertyidentifier = pma.livcorbupropertyidentifier 
+
+=====================================================================================================
+
+WITH mark 
+     AS (SELECT pm.propertymgmtcompanyname, 
+                pm.livcorbupropertyidentifier, 
+                pm.propertyname, 
+                pm.validfrom, 
+                pm.validto, 
+                u.unitname, 
+                u.floorplan, 
+                u.squarefootage, 
+                u.bedroomcount, 
+                u.bathroomcount, 
+                ue.uniteventname, 
+                l.leaseterm, 
+                l.renewallease, 
+                l.leasestartdate, 
+                l.leaseenddate, 
+                l.moveindate, 
+                l.moveoutdate, 
+                rate.leaserateamount, 
+                l.alternativerent, 
+                l.leasingentityid, 
+                cma.standardvalue                   AS leasestatus, 
+                rate.leaseratetypename, 
+                rate_conc.conc                      AS concessions, 
+                -- rate_conc.leaserateamount          AS conc_rate,   
+                Row_number() 
+                  OVER ( 
+                    partition BY pm.livcorbupropertyidentifier, u.unitname, 
+                  ue.uniteventname, 
+                  l.renewallease, l.leasestartdate, l.leasingentityid, 
+                  rate.leaseratetypename 
+                    ORDER BY l.leasestartdate DESC) AS dup 
+         FROM   propertymapping pm 
+                LEFT JOIN unit u 
+                       ON u.propertyassetid = pm.propertyassetid 
+                          AND u.dl_iscurrent = 1 
+                          AND ( u.isexclusionflag IS NULL 
+                                 OR u.isexclusionflag <> '-1' ) 
+                LEFT JOIN unitevent_a ue 
+                       ON u.unitid = ue.unitid 
+                          AND ue.uniteventname = 'Occupied No Notice' 
+                          AND ue.dl_iscurrent = 1 
+                LEFT JOIN lease l 
+                       ON l.unitid = u.unitid 
+                          AND l.dl_iscurrent = 1 
+                and l.leasestartdate <= current_date()  
+                LEFT JOIN leaserate rate 
+                       ON rate.leaseid = l.leaseid 
+                          AND rate.dl_iscurrent = 1 
+                          AND rate.leaseratetypename = 'rent' 
+                LEFT JOIN codemapping_a cma 
+                       ON l.leasestatus = cma.sourcevalue 
+                          AND cma.attribute = 'LeaseStatus' 
+                          AND cma.standardvalue IN ( 
+                              'Current', 'Past', 'Future' 
+                              , 
+                              'Eviction', 
+                              'Notice', 'Vacant', 'Applicant', 
+                              'Canceled' 
+                              , 
+                              'Waitlist', 'Denied' ) 
+                LEFT JOIN (SELECT Listagg(DISTINCT( r.leaseratetypename ) 
+                                                  || ' ' 
+                                                  || r.leaserateamount, ';') AS 
+                                  conc, 
+                                  --listagg(distinct r.leaseratetypename,',') as leaseratetypename,   
+                                  r.leaseid, 
+                                  --  listagg(distinct r.leaserateamount,',') as leaserateamount,   
+                                  Listagg(cm.standardvalue, ',') 
+                           FROM   leaserate r 
+                                  LEFT JOIN codemapping_a cm 
+                                         ON r.leaseratetypename = cm.sourcevalue 
+                                            AND r.dl_iscurrent = 1 
+                           WHERE  cm.standardvalue = 'Concession' 
+                           --AND r.leaserateamount < 0  
+                           GROUP  BY r.leaseid) AS rate_conc 
+                       ON rate_conc.leaseid = l.leaseid 
+         WHERE  1 = 1 
+                AND pm.investment <> 'Caiola' 
+                AND pm.reportingstatus <> 'Dispo' 
+                AND pm.unitcount > 0 
+                AND pm.propertyname LIKE '%Sabal Palm%' 
+                AND pm.dl_iscurrent = 1 
+                AND l.leasingentityid IS NOT NULL 
+        -- AND u.unitname = '19-103'     
+        ), 
+     a 
+     AS (SELECT *, 
+                Row_number() 
+                  OVER ( 
+                    partition BY unitname, propertyname, leasestartdate 
+                    ORDER BY leasestartdate DESC, validfrom DESC) AS sort 
+         FROM   mark 
+         WHERE  dup = 1 
+                AND leaseratetypename IS NOT NULL 
+         ORDER  BY unitname, 
+                   leasestartdate), 
+     b 
+     AS (SELECT *, 
+                Row_number() 
+                  OVER ( 
+                    partition BY unitname, propertyname 
+                    ORDER BY leasestartdate DESC) AS grab_two 
+         FROM   a 
+         WHERE  sort = 1), 
+     c 
+     AS (SELECT * 
+         FROM   b 
+         WHERE  grab_two IN ( 1, 2 )), 
+     d 
+     AS (SELECT c.livcorbupropertyidentifier, 
+                c.propertyname, 
+                c.unitname, 
+                c.squarefootage, 
+                c.bedroomcount, 
+                c.bathroomcount, 
+                Max(CASE 
+                      WHEN grab_two = '1' THEN c.validfrom 
+                    END) AS VALIDFROM_1, 
+                Max(CASE 
+                      WHEN grab_two = '1' THEN c.validto 
+                    END) AS VALIDTO_1, 
+                Max(CASE 
+                      WHEN grab_two = '1' THEN c.floorplan 
+                    END) AS FLOORPLAN_1, 
+                Max(CASE 
+                      WHEN grab_two = '1' THEN c.uniteventname 
+                    END) AS UNITEVENTNAME_1, 
+                Max(CASE 
+                      WHEN grab_two = '1' THEN c.leaseterm 
+                    END) AS LEASETERM_1, 
+                Max(CASE 
+                      WHEN grab_two = '1' THEN c.leasestartdate 
+                    END) AS LEASESTARTDATE_1, 
+                Max(CASE 
+                      WHEN grab_two = '1' THEN c.leaseenddate 
+                    END) AS LEASEENDDATE_1, 
+                Max(CASE 
+                      WHEN grab_two = '1' THEN c.moveindate 
+                    END) AS MOVEINDATE_1, 
+                Max(CASE 
+                      WHEN grab_two = '1' THEN c.moveoutdate 
+                    END) AS MOVEOUTDATE_1, 
+                Max(CASE 
+                      WHEN grab_two = '1' THEN c.leasestatus 
+                    END) AS LEASESTATUS_1, 
+                Max(CASE 
+                      WHEN grab_two = '1' THEN c.leaserateamount 
+                    END) AS LEASERATEAMOUNT_1, 
+                Max(CASE 
+                      WHEN grab_two = '1' THEN c.alternativerent 
+                    END) AS ALTERNATIVERENT_1, 
+                Max(CASE 
+                      WHEN grab_two = '1' THEN c.leasingentityid 
+                    END) AS LEASINGENTITYID_1, 
+                Max(CASE 
+                      WHEN grab_two = '1' THEN c.concessions 
+                    END) AS CONCESSIONS_1, 
+                --   Max(CASE   
+                --  WHEN grab_two = '1' THEN c.conc_rate   
+                --  END) AS CONC_RATE_1,   
+                Max(CASE 
+                      WHEN grab_two = '1' THEN c.leaseratetypename 
+                    END) AS LEASERATETYPENAME_1, 
+                Max(CASE 
+                      WHEN grab_two = '1' THEN c.propertymgmtcompanyname 
+                    END) AS PROPERTYMGMTCOMPANYNAME_1, 
+                Max(CASE 
+                      WHEN grab_two = '1' THEN c.renewallease 
+                    END) AS RENEWALLEASE_1, 
+                Max(CASE 
+                      WHEN grab_two = '2' THEN c.validfrom 
+                    END) AS VALIDFROM_2, 
+                Max(CASE 
+                      WHEN grab_two = '2' THEN c.validto 
+                    END) AS VALIDTO_2, 
+                Max(CASE 
+                      WHEN grab_two = '2' THEN c.floorplan 
+                    END) AS FLOORPLAN_2, 
+                Max(CASE 
+                      WHEN grab_two = '2' THEN c.uniteventname 
+                    END) AS UNITEVENTNAME_2, 
+                Max(CASE 
+                      WHEN grab_two = '2' THEN c.leaseterm 
+                    END) AS LEASETERM_2, 
+                Max(CASE 
+                      WHEN grab_two = '2' THEN c.leasestartdate 
+                    END) AS LEASESTARTDATE_2, 
+                Max(CASE 
+                      WHEN grab_two = '2' THEN c.leaseenddate 
+                    END) AS LEASEENDDATE_2, 
+                Max(CASE 
+                      WHEN grab_two = '2' THEN c.moveindate 
+                    END) AS MOVEINDATE_2, 
+                Max(CASE 
+                      WHEN grab_two = '2' THEN c.moveoutdate 
+                    END) AS MOVEOUTDATE_2, 
+                Max(CASE 
+                      WHEN grab_two = '2' THEN c.leasestatus 
+                    END) AS LEASESTATUS_2, 
+                Max(CASE 
+                      WHEN grab_two = '2' THEN c.leaserateamount 
+                    END) AS LEASERATEAMOUNT_2, 
+                Max(CASE 
+                      WHEN grab_two = '2' THEN c.alternativerent 
+                    END) AS ALTERNATIVERENT_2, 
+                Max(CASE 
+                      WHEN grab_two = '2' THEN c.concessions 
+                    END) AS CONCESSIONS_2, 
+                --    Max(CASE   
+                --      WHEN grab_two = '2' THEN c.conc_rate   
+                --   END) AS CONC_RATE_2,   
+                Max(CASE 
+                      WHEN grab_two = '2' THEN c.leasingentityid 
+                    END) AS LEASINGENTITYID_2, 
+                Max(CASE 
+                      WHEN grab_two = '2' THEN c.leaseratetypename 
+                    END) AS LEASERATETYPENAME_2, 
+                Max(CASE 
+                      WHEN grab_two = '2' THEN c.propertymgmtcompanyname 
+                    END) AS PROPERTYMGMTCOMPANYNAME_2, 
+                Max(CASE 
+                      WHEN grab_two = '2' THEN c.renewallease 
+                    END) AS RENEWALLEASE_2 
+         FROM   c 
+         GROUP  BY c.livcorbupropertyidentifier, 
+                   c.propertyname, 
+                   c.unitname, 
+                   c.squarefootage, 
+                   c.bedroomcount, 
+                   c.bathroomcount 
+         ORDER  BY c.livcorbupropertyidentifier, 
+                   c.propertyname, 
+                   c.unitname, 
+                   c.squarefootage, 
+                   c.bedroomcount, 
+                   c.bathroomcount) 
+SELECT pma.propertymgmtcompanyname AS Current_Operator, 
+       d.* 
+FROM   d 
+       LEFT JOIN propertymapping_a pma 
+              ON d.livcorbupropertyidentifier = pma.livcorbupropertyidentifier 
+              
+ =============================================================================================
+
+WITH mark 
+     AS (SELECT pm.propertymgmtcompanyname, 
+                pm.livcorbupropertyidentifier, 
+                pm.propertyname, 
+                pm.validfrom, 
+                pm.validto, 
+                u.unitname, 
+                u.floorplan, 
+                u.squarefootage, 
+                u.bedroomcount, 
+                u.bathroomcount, 
+                ue.uniteventname, 
+                l.leaseterm, 
+                l.renewallease, 
+                l.leasestartdate, 
+                l.leaseenddate, 
+                l.moveindate, 
+                l.moveoutdate, 
+                rate.leaserateamount, 
+                l.alternativerent, 
+                l.leasingentityid, 
+                cma.standardvalue                   AS leasestatus, 
+                rate.leaseratetypename, 
+                rate_conc.conc                      AS concessions, 
+                -- rate_conc.leaserateamount          AS conc_rate,    
+                Row_number() 
+                  OVER ( 
+                    partition BY pm.livcorbupropertyidentifier, u.unitname, 
+                  ue.uniteventname, 
+                  l.renewallease, l.leasestartdate, l.leasingentityid, 
+                  rate.leaseratetypename 
+                    ORDER BY l.leasestartdate DESC) AS dup 
+         FROM   propertymapping pm 
+                LEFT JOIN unit u 
+                       ON u.propertyassetid = pm.propertyassetid 
+                          AND u.dl_iscurrent = 1 
+                          AND ( u.isexclusionflag IS NULL 
+                                 OR u.isexclusionflag <> '-1' ) 
+                LEFT JOIN unitevent_a ue 
+                       ON u.unitid = ue.unitid 
+                          AND ue.uniteventname = 'Occupied No Notice' 
+                          AND ue.dl_iscurrent = 1 
+                LEFT JOIN lease l 
+                       ON l.unitid = u.unitid 
+                          AND l.dl_iscurrent = 1 
+                          AND l.leasestartdate <= CURRENT_DATE() 
+                LEFT JOIN leaserate rate 
+                       ON rate.leaseid = l.leaseid 
+                          AND rate.dl_iscurrent = 1 
+                          AND rate.leaseratetypename IN ( 'rent', 'LeaseRent' ) 
+                LEFT JOIN codemapping_a cma 
+                       ON l.leasestatus = cma.sourcevalue 
+                          AND cma.attribute = 'LeaseStatus' 
+                          AND cma.standardvalue IN ( 
+                              'Current', 'Past', 'Future' 
+                              , 
+                              'Eviction', 
+                              'Notice', 'Vacant', 'Applicant', 
+                              'Canceled' 
+                              , 
+                              'Waitlist', 'Denied' ) 
+                LEFT JOIN (SELECT Listagg(DISTINCT( r.leaseratetypename ) 
+                                                  || ' ' 
+                                                  || r.leaserateamount, ';') AS 
+                                  conc, 
+                                  --listagg(distinct r.leaseratetypename,',') as leaseratetypename,    
+                                  r.leaseid, 
+                                  --  listagg(distinct r.leaserateamount,',') as leaserateamount,    
+                                  Listagg(cm.standardvalue, ',') 
+                           FROM   leaserate r 
+                                  LEFT JOIN codemapping_a cm 
+                                         ON r.leaseratetypename = cm.sourcevalue 
+                                            AND r.dl_iscurrent = 1 
+                           WHERE  cm.standardvalue = 'Concession' 
+                           --AND r.leaserateamount < 0   
+                           GROUP  BY r.leaseid) AS rate_conc 
+                       ON rate_conc.leaseid = l.leaseid 
+         WHERE  1 = 1 
+                AND pm.investment <> 'Caiola' 
+                AND pm.reportingstatus <> 'Dispo' 
+                AND pm.unitcount > 0 
+                AND pm.propertyname LIKE '%Sabal Palm%' 
+                AND pm.dl_iscurrent = 1 
+                AND l.leasingentityid IS NOT NULL 
+                AND l.moveindate IS NOT NULL 
+                AND u.unitname = '04-203'), 
+     a 
+     AS (SELECT *, 
+                Row_number() 
+                  OVER ( 
+                    partition BY unitname, propertyname, leasestartdate 
+                    ORDER BY leasestartdate DESC, validfrom DESC) AS sort 
+         FROM   mark 
+         WHERE  dup = 1 
+                AND leaseratetypename IS NOT NULL 
+         ORDER  BY unitname, 
+                   leasestartdate), 
+     b 
+     AS (SELECT *, 
+                Row_number() 
+                  OVER ( 
+                    partition BY unitname, propertyname 
+                    ORDER BY leasestartdate DESC) AS grab_two 
+         FROM   a 
+         WHERE  sort = 1), 
+     c 
+     AS (SELECT *, 
+                Row_number() 
+                  OVER ( 
+                    partition BY unitname, propertyname 
+                    ORDER BY validfrom DESC, leasestartdate DESC) AS grab_latest 
+         FROM   b 
+         WHERE  grab_two IN ( 1, 2 )), 
+     d 
+     AS (SELECT c.livcorbupropertyidentifier, 
+                c.propertyname, 
+                c.unitname, 
+                c.squarefootage, 
+                c.bedroomcount, 
+                c.bathroomcount, 
+                Max(CASE 
+                      WHEN grab_latest = '1' THEN c.validfrom 
+                    END) AS VALIDFROM_1, 
+                Max(CASE 
+                      WHEN grab_latest = '1' THEN c.validto 
+                    END) AS VALIDTO_1, 
+                Max(CASE 
+                      WHEN grab_latest = '1' THEN c.floorplan 
+                    END) AS FLOORPLAN_1, 
+                Max(CASE 
+                      WHEN grab_latest = '1' THEN c.uniteventname 
+                    END) AS UNITEVENTNAME_1, 
+                Max(CASE 
+                      WHEN grab_latest = '1' THEN c.leaseterm 
+                    END) AS LEASETERM_1, 
+                Max(CASE 
+                      WHEN grab_latest = '1' THEN c.leasestartdate 
+                    END) AS LEASESTARTDATE_1, 
+                Max(CASE 
+                      WHEN grab_latest = '1' THEN c.leaseenddate 
+                    END) AS LEASEENDDATE_1, 
+                Max(CASE 
+                      WHEN grab_latest = '1' THEN c.moveindate 
+                    END) AS MOVEINDATE_1, 
+                Max(CASE 
+                      WHEN grab_latest = '1' THEN c.moveoutdate 
+                    END) AS MOVEOUTDATE_1, 
+                Max(CASE 
+                      WHEN grab_latest = '1' THEN c.leasestatus 
+                    END) AS LEASESTATUS_1, 
+                Max(CASE 
+                      WHEN grab_latest = '1' THEN c.leaserateamount 
+                    END) AS LEASERATEAMOUNT_1, 
+                Max(CASE 
+                      WHEN grab_latest = '1' THEN c.alternativerent 
+                    END) AS ALTERNATIVERENT_1, 
+                Max(CASE 
+                      WHEN grab_latest = '1' THEN c.leasingentityid 
+                    END) AS LEASINGENTITYID_1, 
+                Max(CASE 
+                      WHEN grab_latest = '1' THEN c.concessions 
+                    END) AS CONCESSIONS_1, 
+                --   Max(CASE    
+                --  WHEN grab_two = '1' THEN c.conc_rate    
+                --  END) AS CONC_RATE_1,    
+                Max(CASE 
+                      WHEN grab_latest = '1' THEN c.leaseratetypename 
+                    END) AS LEASERATETYPENAME_1, 
+                Max(CASE 
+                      WHEN grab_latest = '1' THEN c.propertymgmtcompanyname 
+                    END) AS PROPERTYMGMTCOMPANYNAME_1, 
+                Max(CASE 
+                      WHEN grab_latest = '1' THEN c.renewallease 
+                    END) AS RENEWALLEASE_1, 
+                Max(CASE 
+                      WHEN grab_latest = '2' THEN c.validfrom 
+                    END) AS VALIDFROM_2, 
+                Max(CASE 
+                      WHEN grab_latest = '2' THEN c.validto 
+                    END) AS VALIDTO_2, 
+                Max(CASE 
+                      WHEN grab_latest = '2' THEN c.floorplan 
+                    END) AS FLOORPLAN_2, 
+                Max(CASE 
+                      WHEN grab_latest = '2' THEN c.uniteventname 
+                    END) AS UNITEVENTNAME_2, 
+                Max(CASE 
+                      WHEN grab_latest = '2' THEN c.leaseterm 
+                    END) AS LEASETERM_2, 
+                Max(CASE 
+                      WHEN grab_latest = '2' THEN c.leasestartdate 
+                    END) AS LEASESTARTDATE_2, 
+                Max(CASE 
+                      WHEN grab_latest = '2' THEN c.leaseenddate 
+                    END) AS LEASEENDDATE_2, 
+                Max(CASE 
+                      WHEN grab_latest = '2' THEN c.moveindate 
+                    END) AS MOVEINDATE_2, 
+                Max(CASE 
+                      WHEN grab_latest = '2' THEN c.moveoutdate 
+                    END) AS MOVEOUTDATE_2, 
+                Max(CASE 
+                      WHEN grab_latest = '2' THEN c.leasestatus 
+                    END) AS LEASESTATUS_2, 
+                Max(CASE 
+                      WHEN grab_latest = '2' THEN c.leaserateamount 
+                    END) AS LEASERATEAMOUNT_2, 
+                Max(CASE 
+                      WHEN grab_latest = '2' THEN c.alternativerent 
+                    END) AS ALTERNATIVERENT_2, 
+                Max(CASE 
+                      WHEN grab_latest = '2' THEN c.concessions 
+                    END) AS CONCESSIONS_2, 
+                --    Max(CASE    
+                --      WHEN grab_two = '2' THEN c.conc_rate    
+                --   END) AS CONC_RATE_2,    
+                Max(CASE 
+                      WHEN grab_latest = '2' THEN c.leasingentityid 
+                    END) AS LEASINGENTITYID_2, 
+                Max(CASE 
+                      WHEN grab_latest = '2' THEN c.leaseratetypename 
+                    END) AS LEASERATETYPENAME_2, 
+                Max(CASE 
+                      WHEN grab_latest = '2' THEN c.propertymgmtcompanyname 
+                    END) AS PROPERTYMGMTCOMPANYNAME_2, 
+                Max(CASE 
+                      WHEN grab_latest = '2' THEN c.renewallease 
+                    END) AS RENEWALLEASE_2 
+         FROM   c 
+         GROUP  BY c.livcorbupropertyidentifier, 
+                   c.propertyname, 
+                   c.unitname, 
+                   c.squarefootage, 
+                   c.bedroomcount, 
+                   c.bathroomcount 
+         ORDER  BY c.livcorbupropertyidentifier, 
+                   c.propertyname, 
+                   c.unitname, 
+                   c.squarefootage, 
+                   c.bedroomcount, 
+                   c.bathroomcount) 
+SELECT pma.propertymgmtcompanyname AS Current_Operator, 
+       d.* 
+FROM   d 
+       LEFT JOIN propertymapping_a pma 
+              ON d.livcorbupropertyidentifier = pma.livcorbupropertyidentifier              

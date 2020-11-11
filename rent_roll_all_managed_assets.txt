@@ -1,0 +1,71 @@
+WITH UnitQuery As
+    (
+        SELECT
+            pm.PropertyMgmtCompanyName                    As Asset_Operator
+          , pm.PropertyName                               As Asset_Name
+          , pm.UnitCount                                  As Asset_UnitCount
+          , u.UnitID                                      As Unit_ID
+          , u.UnitName                                    As Unit_Name
+          , u.ADDRESSLINE1                                As Unit_Address
+          , u.FloorPlan                                   AS Unit_FloorPlan_1
+          , COALESCE(cm.StandardValue, cm2.StandardValue) As Unit_FloorPlan_2
+          , ml.LatestLeaseStart                           As Unit_LatestLeaseStart
+          , u.MARKETRENTRATE
+        FROM
+            PROPERTYMAPPING_A pm
+            LEFT JOIN
+                UNIT_A u
+                ON
+                    pm.PropertyAssetID = u.PropertyAssetID
+            LEFT JOIN
+                CODEMAPPING_A cm
+                ON
+                    cm.SourceValue   = u.FloorPlan
+                    and cm.Entity    = 'Unit'
+                    and cm.Attribute = 'FloorPlan'
+                    and cm.Source    = u.Source
+            LEFT JOIN
+                CODEMAPPING_A cm2
+                ON
+                    cm2.SourceValue   = CONCAT(u.SourceKey, '|', u.FloorPlan)
+                    and cm2.Entity    = 'Unit'
+                    and cm2.Attribute = 'FloorPlanAlt'
+                    and cm2.Source    = u.Source
+            LEFT JOIN
+                (
+                    SELECT
+                        UnitID
+                      , MAX(LEASESTARTDATE) As LatestLeaseStart
+                    FROM
+                        LEASE_A
+                    GROUP BY
+                        UnitID
+                )
+                ml
+                on
+                    ml.UnitID = u.UnitID
+        WHERE
+            pm.ReportingStatus <> 'Dispo'
+            AND pm.UnitCount    > 0
+            AND
+            (
+                u.IsExclusionFlag IS NULL
+                OR u.IsExclusionFlag   <> '-1'
+            )
+            AND
+            (
+                (
+                    u.UnitName     NOT LIKE '%WAIT%'
+                    AND u.UnitName NOT LIKE '%GAR%'
+                )
+                or u.UnitName Is Null
+            )
+        ORDER BY
+            pm.PropertyMgmtCompanyName
+          , pm.PropertyName
+          , u.UnitName
+    )
+SELECT
+    u.*
+FROM
+    UnitQuery u

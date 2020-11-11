@@ -1,4 +1,7 @@
-WITH mark 
+set StartDate = to_date('2020-07-01', 'YYYY-MM-DD');
+set EndDate = to_date('2020-09-30', 'YYYY-MM-DD');
+
+WITH RFMO 
      AS (SELECT pm.propertymgmtcompanyname, 
                 pm.livcorbupropertyidentifier, 
                 pm.propertyname, 
@@ -6,7 +9,7 @@ WITH mark
                 l.leaseid, 
                 le.reason, 
                 le.leaseeventname, 
-         l.moveoutdate,
+                l.moveoutdate,
                 le.eventdate,
                 Row_number() 
                   OVER ( 
@@ -28,10 +31,10 @@ WITH mark
                 AND pm.unitcount > 0 
 //                 and  pm.propertymgmtcompanyname = 'Greystar' 
                 --AND pm.propertyname = 'West End at City Center' 
-                AND l.moveoutdate >= ( '2020-04-01' ) 
-                AND l.moveoutdate <= ( '2020-06-30' ) 
+                AND l.moveoutdate >= $StartDate 
+                AND l.moveoutdate <= $EndDate
                 AND l.moveoutdate IS NOT NULL) 
 SELECT  *
-FROM   mark
+FROM   RFMO
 WHERE  1=1
 AND     dup_leaseid = 1 

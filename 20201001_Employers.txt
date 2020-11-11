@@ -1,0 +1,88 @@
+/***************************************************************************************************
+    __    _       ______              ____  _   _____ 
+   / /   (_)   __/ ____/___  _____   / __ \/ | / /   |
+  / /   / / | / / /   / __ \/ ___/  / / / /  |/ / /| |
+ / /___/ /| |/ / /___/ /_/ / /     / /_/ / /|  / ___ |
+/_____/_/ |___/\____/\____/_/     /_____/_/ |_/_/  |_|
+                                                    
+Query:			List of Tenant Employers at LivCor Assets
+Created:		2020-10-01
+Author:			D. Cromer
+Description:	This query returns a unique list of employer, position, and other tenant info.
+					The data includes a filters to account for:
+                    1) Only showing employers where a lease is present
+                        l.LeaseID IS NOT NULL
+                        (we believe some employer information comes from prospects w/o application)
+                    2) Removes any employer names that are blank/not provided
+                        le.EMPLOYER   IS NOT NULL
+                        le.EMPLOYER        <> ''
+                    3) Removes records associated with a sold asset
+                        pm.ReportingStatus <> 'Dispo'
+****************************************************************************************************
+CHANGE LOG
+Date(yyyy-mm-dd)    Author              Comments
+------------------- ------------------- ------------------------------------------------------------
+2020-10-21			D. Cromer			Initial Version
+***************************************************************************************************/
+
+SELECT DISTINCT
+    pm.PropertyMgmtCompanyName As Operator
+  , pm.PropertyName
+  , le.EMPLOYER
+  , le.POSITION
+  , le.STARTDATEOFEMPLOYMENT
+  , le.EMPLOYMENTADDRESS1
+  , le.EMPLOYMENTADDRESS2
+  , le.EMPLOYMENTCITY
+  , le.EMPLOYMENTSTATE
+  , le.EMPLOYMENTPOSTALCODE
+  , le.EMPLOYMENTPHONENUMBER
+FROM
+    "DNA_SDW_PD"."LIV_ODS"."LEASINGENTITY_A" le
+    LEFT JOIN
+        (
+            SELECT
+                PRIMARYLEID As ProspectID
+              , RELATEDLEID As TenantID
+            FROM
+                "DNA_SDW_PD"."LIV_ODS"."LEASINGENTITYRELTN_A"
+            WHERE
+                LEASINGRELATIONSHIPTYPE = 'Prospect-Tenant'
+            UNION
+            SELECT
+                a.RELATEDLEID As ProspectID
+              , b.RELATEDLEID As TenantID
+            FROM
+                "DNA_SDW_PD"."LIV_ODS"."LEASINGENTITYRELTN_A" a
+                LEFT JOIN
+                    "DNA_SDW_PD"."LIV_ODS"."LEASINGENTITYRELTN_A" b
+                    ON
+                        b.PRIMARYLEID                 = a.PRIMARYLEID
+                        AND b.LEASINGRELATIONSHIPTYPE = 'Prospect-Tenant'
+            WHERE
+                a.LEASINGRELATIONSHIPTYPE = 'Parent-Child'
+        )
+        ler
+        ON
+            ler.ProspectID = le.LeasingEntityID
+    LEFT JOIN
+        "DNA_SDW_PD"."LIV_ODS"."LEASE_A" l
+        ON
+            l.LeasingEntityID = ler.TenantID
+    LEFT JOIN
+        "DNA_SDW_PD"."LIV_ODS"."UNIT_A" u
+        ON
+            u.UnitID = l.UnitID
+    LEFT JOIN
+        "DNA_SDW_PD"."LIV_ODS"."PROPERTYMAPPING_A" pm
+        ON
+            pm.PropertyAssetID = u.PropertyAssetID
+WHERE
+    le.EMPLOYER   IS NOT NULL
+    AND le.EMPLOYER        <> ''
+    AND l.LeaseID IS NOT NULL
+    AND pm.ReportingStatus <> 'Dispo'
+ORDER BY
+    pm.PropertyMgmtCompanyName
+  , pm.PropertyName
+  , le.EMPLOYER
