@@ -1,0 +1,79 @@
+SELECT DISTINCT
+   pm.METROSTATISTICALAREA AS MSA
+  ,pm.LIVCORBUPROPERTYIDENTIfier AS Property_BU
+  ,pm.PropertyName As Property_Description
+  ,pm.PropertyMgmtCompanyName As Operator
+  ,DATE(l.LEASESIGNEDDATE) AS Application_Sign_Date
+  ,l.leasingentityid
+  ,l.renewallease AS Renewal_Lease
+  ,le.leadsource AS Lead_Source
+  ,le.leadchannel AS Lead_Channel
+  ,le.prioraddress AS Residents_Prior_Address
+  ,le.priorstate AS Residents_Prior_State
+  ,le.priorcity AS Residents_Prior_City
+  ,le.PRIORPOSTALCODE AS Residents_Prior_Postal_Code
+  ,le.Income AS Residents_Income
+  ,le.EMPLOYER AS Residents_Employer
+  ,le.POSITION AS Residents_Employment_Position
+  ,DATE(le.STARTDATEOFEMPLOYMENT) AS Residents_Employment_Start
+  ,le.EMPLOYMENTADDRESS1 AS Residents_Employer_Address
+  ,le.EMPLOYMENTADDRESS2 AS Residents_Employer_Address_Number_2
+  ,le.EMPLOYMENTCITY AS Residents_Employer_City
+  ,le.EMPLOYMENTSTATE AS Residents_Employer_State
+  ,le.EMPLOYMENTPOSTALCODE AS Residents_Employer_Postal_Code
+  ,ys.YSKEY
+  ,CONCAT(ys.YSKEY,'-',CAST(DATE_TRUNC('day',l.LEASESTARTDATE) as DATE), '-', CAST(DATE_TRUNC('day',l.LEASEENDDATE) as DATE)) AS YS_Full_Key
+  
+
+FROM
+    "DNA_SDW_PD"."LIV_ODS"."LEASINGENTITY_A" le
+    LEFT JOIN
+        (
+            SELECT
+                PRIMARYLEID As ProspectID
+              , RELATEDLEID As TenantID
+            FROM
+                "DNA_SDW_PD"."LIV_ODS"."LEASINGENTITYRELTN_A"
+            WHERE
+                LEASINGRELATIONSHIPTYPE = 'Prospect-Tenant'
+            UNION
+            SELECT
+                a.RELATEDLEID As ProspectID
+              , b.RELATEDLEID As TenantID
+            FROM
+                "DNA_SDW_PD"."LIV_ODS"."LEASINGENTITYRELTN_A" a
+                LEFT JOIN
+                    "DNA_SDW_PD"."LIV_ODS"."LEASINGENTITYRELTN_A" b
+                    ON
+                        b.PRIMARYLEID                 = a.PRIMARYLEID
+                        AND b.LEASINGRELATIONSHIPTYPE = 'Prospect-Tenant'
+            WHERE
+                a.LEASINGRELATIONSHIPTYPE = 'Parent-Child'
+        )
+        ler
+        ON
+            ler.ProspectID = le.LeasingEntityID
+    LEFT JOIN
+        "DNA_SDW_PD"."LIV_ODS"."LEASE_A" l
+        ON
+            l.LeasingEntityID = ler.TenantID
+    LEFT JOIN
+        "DNA_SDW_PD"."LIV_ODS"."UNIT_A" u
+        ON
+            u.UnitID = l.UnitID
+    LEFT JOIN
+        "DNA_SDW_PD"."LIV_ODS"."PROPERTYMAPPING_A" pm
+        ON
+            pm.PropertyAssetID = u.PropertyAssetID
+            
+    LEFT JOIN "LIV_SANDBOX"."REALPAGE"."YSUNITMAPPING" ys
+        ON 
+            u.UnitID = ys.UnitID
+WHERE
+    pm.METROSTATISTICALAREA in ('Phoenix','Las Vegas','Orlando','Dallas-Fort Worth','Inland Empire','Atlanta','Los Angeles','Denver', 'South Florida','Nashville','Tacoma','Seattle','Austin','Portland','Charlotte','Tampa','Houston','Raleigh','Sacramento','Jacksonville')
+    AND pm.ReportingStatus = 'Same Store'
+    AND l.LEASESTARTDATE > DATEADD(MONTH,-2,Date_trunc('month', current_date()))
+    AND l.LEASESTARTDATE < DATEADD(MONTH,3,Date_trunc('month', current_date()))
+ORDER BY
+    pm.METROSTATISTICALAREA
+  , pm.PropertyName

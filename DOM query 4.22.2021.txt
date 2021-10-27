@@ -1,0 +1,127 @@
+WITH leasequery AS
+( 
+
+          SELECT    pm.propertymgmtcompanyname    AS asset_operator,
+                    pm.propertyname               AS asset_name,
+                    pm.livcorbupropertyidentifier AS asset_bu,
+                    pm.unitcount                  AS asset_unitcount,
+                    l.leaseid                     AS lease_id,
+                    l.leasingentityid             AS leasingentityid,
+                    l.renewallease                AS renewal,
+                    u.unitid                      AS unit_id,
+                    u.unitname                    AS unit_name,
+                    u.addressline1                AS unit_address,
+                    u.floorplan                   AS unit_floorplan_1,
+                    l.leasestartdate              AS lease_start_date,
+                    l.leaseenddate                AS lease_end_date
+          FROM      lease_a L
+          LEFT JOIN unit_a u
+          ON        l.unitid = u.unitid
+          LEFT JOIN propertymapping_a pm
+          ON        u.propertyassetid = pm.propertyassetid
+          WHERE     1 = 1
+          AND       l.leasestartdate >= DATEADD(MONTH,-4,Date_trunc('month', current_date()))
+          AND       l.leasestartdate < DATEADD(MONTH,9,Date_trunc('month', current_date()))
+          AND       l.renewallease = 'N'
+
+  
+  
+          ORDER BY  
+//  pm.propertymgmtcompanyname,
+//                    pm.propertyname,
+                
+                u.unitname,
+                l.leasestartdate),
+                    
+
+appdate AS
+(
+          SELECT    l.lease_id,
+                    l.unit_id,
+		   lee.leasingentityid,   //Adding LeasingEntityID to this ensures that if a tenant is assigned a new ProspectCode,
+                    Min(lee.eventdate) AS appdate  //the events that occur under the new code are still counted
+          FROM      leasingentityevent_a lee
+          LEFT JOIN leasingentityreltn_a ler
+          ON        ler.primaryleid = lee.leasingentityid
+          AND       ler.leasingrelationshiptype = 'Prospect-Tenant'
+          INNER JOIN leasequery l //CHANGED FROM LEFT TO INNER JOIN
+          ON        (
+                              l.leasingentityid = ler.relatedleid )
+          OR        (
+                              l.leasingentityid = lee.leasingentityid )
+          WHERE     leasingentityeventname IN ( 'AppliedDate',
+                                               'Date_Applied',
+					     'Submit Application') //'Submit Application' is also a valid event name
+          GROUP BY  l.lease_id,
+                    l.unit_id,
+		   lee.leasingentityid), //need to add LeasingEntityID to the GROUP BY statement
+
+appdate2 AS
+(
+         SELECT   unit_id ,
+                  Max(appdate) AS appdate
+         FROM     appdate
+         GROUP BY unit_id), 
+
+//Original Lease is for reference only
+original_lease AS
+(
+          SELECT    lq.leasingentityid ,
+                    Min(leasestartdate) AS first_lease_start_date
+          FROM      leasequery LQ
+          LEFT JOIN lease L
+          ON        lq.leasingentityid = l.leasingentityid
+          AND       l.dl_iscurrent = 1
+                    //            AND l.activeind = 1
+          GROUP BY  lq.leasingentityid),
+
+notice_date_full AS
+(
+          SELECT    l.unit_id      AS unitid,
+                    a.noticeondate AS latestnoticeondate,
+                    a.noticefordate
+          FROM      leasequery l
+          LEFT JOIN lease A
+          ON        l.unit_id = a.unitid
+          AND       dl_iscurrent = 1
+          AND       activeind = 1
+),
+
+latestnoticedatequery AS
+(
+         SELECT   nd.unitid ,
+                  Max(latestnoticeondate) latestnoticeondate
+         FROM     notice_date_full ND
+                          LEFT JOIN appdate2 a
+                          ON nd.unitid = a.unit_id
+                  
+                          WHERE nd.latestnoticeondate < a.appdate
+         GROUP BY nd.unitid )
+         
+
+SELECT    l.asset_operator,
+          l.asset_name,
+          l.asset_bu,
+          l.asset_unitcount,
+          l.unit_id,
+          l.unit_name,
+          l.unit_address,
+          l.unit_floorplan_1,
+          MAX(L.lease_start_date) as Latest_Lease_Start_Date,
+          a.appdate ,
+          ln.latestnoticeondate
+FROM      leasequery L
+LEFT JOIN appdate2 A
+ON        l.unit_id = a.unit_id
+LEFT JOIN latestnoticedatequery LN
+ON        l.unit_id = ln.unitid
+GROUP BY  l.asset_operator,
+          l.asset_name,
+          l.asset_bu,
+          l.asset_unitcount,
+          l.unit_id,
+          l.unit_name,
+          l.unit_address,
+          l.unit_floorplan_1,
+          a.appdate ,
+          ln.latestnoticeondate

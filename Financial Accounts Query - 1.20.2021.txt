@@ -1,0 +1,325 @@
+WITH reporting_date_values AS 
+( 
+         SELECT   Dateadd(month, '-' 
+                           || Row_number() OVER (ORDER BY NULL), Dateadd(month, '+1', '2021-12-01') ) AS date_value 
+         FROM     table (generator(ROWCOUNT => 36)) ) , reporting_date AS 
+( 
+       SELECT date_value            AS reporting_date_value , 
+              year(date_value)      AS reporting_date_year , 
+              month(date_value)     AS reporting_date_month , 
+              monthname(date_value) AS reporting_date_monthname 
+       FROM   reporting_date_values ) , financialbalance AS ( WITH parent_accounts AS 
+( 
+       SELECT 'ALL_Accounts_Receivable_Active' AS parentaccount , 
+              'AR'                             AS accountname 
+       UNION 
+       SELECT 'ALL_Prepaid_Rents' AS parentaccount , 
+              'Prepaid'           AS accountname ) , activityquery AS 
+( 
+       SELECT sum(f.periodactivity)   AS activity , 
+              sum(f.beginningbalance) AS beginningbalance , 
+              f.perioddate , 
+              c.companyname , 
+              c.companyid , 
+              lt.value       AS ledgertype , 
+              s.value        AS scenario , 
+              lh.accountname AS account 
+       FROM   livfinops.finops.wglbalancef f 
+       JOIN   livfinops.finops.wcompanyd c 
+       ON     f.companywid = c.companywid 
+       JOIN   livfinops.finops.wlistofvaluesd lt 
+       ON     lt.valuewid = f.ledgertypewid 
+       AND    lt.lovtype = 'LedgerType' 
+       JOIN   livfinops.finops.wledgeraccountd la 
+       ON     la.ledgeraccountwid = f.ledgeraccountwid 
+       JOIN   ( WITH cte_h_account AS 
+              ( 
+                     SELECT p.accountname , 
+                            ledgeraccounthierarchywid , 
+                            levelid , 
+                            levelname , 
+                            parentlevelwid , 
+                            hierarchyname 
+                     FROM   livfinops.finops.wledgeraccounthierarchyd q 
+                     JOIN   parent_accounts p 
+                     ON     p.parentaccount = q.levelid 
+                     UNION ALL 
+                     SELECT a.accountname , 
+                            b.ledgeraccounthierarchywid , 
+                            b.levelid , 
+                            b.levelname , 
+                            b.parentlevelwid , 
+                            b.hierarchyname 
+                     FROM   livfinops.finops.wledgeraccounthierarchyd b 
+                     JOIN   cte_h_account a 
+                     ON     a.ledgeraccounthierarchywid = b.parentlevelwid ) 
+       SELECT c.accountname , 
+              e.ledgeraccountwid 
+       FROM   cte_h_account c 
+       JOIN   livfinops.finops.wledgeraccounthierarchybridged d 
+       ON     d.ledgeraccounthierarchywid = c.ledgeraccounthierarchywid 
+       JOIN   livfinops.finops.wledgeraccountd e 
+       ON     e.ledgeraccountwid = d.ledgeraccountwid ) lh 
+       ON     lh.ledgeraccountwid = f.ledgeraccountwid 
+       JOIN   livfinops.finops.wlistofvaluesd bc 
+       ON     bc.valuewid = f.bookcodewid 
+       AND    f.bookcodewid IN ( WITH cte_h_bookcode AS 
+                                ( 
+                                       SELECT levelid , 
+                                              bookhierarchywid , 
+                                              parentlevelwid 
+                                       FROM   livfinops.finops.wbookhierarchyd 
+                                       WHERE  levelid = 'AM Reporting' 
+                                       UNION ALL 
+                                       SELECT b.levelid , 
+                                              b.bookhierarchywid , 
+                                              b.parentlevelwid 
+                                       FROM   livfinops.finops.wbookhierarchyd b 
+                                       JOIN   cte_h_bookcode a 
+                                       ON     a.bookhierarchywid = b.parentlevelwid ) 
+                         SELECT   d.valuewid 
+                         FROM     cte_h_bookcode c 
+                         JOIN     livfinops.finops.wlistofvaluesd d 
+                         ON       d.value = c.levelid 
+                         AND      d.lovtype = 'BookCode' ) 
+     JOIN     livfinops.finops.wlistofvaluesd bk 
+     ON       bk.valuewid = f.bookwid 
+     AND      bk.lovtype = 'Book' 
+     AND      bk.value = 'Common Book' 
+     JOIN     livfinops.finops.wlistofvaluesd s 
+     ON       s.valuewid = f.scenariowid 
+     AND      s.lovtype = 'Scenario' 
+     WHERE    f.perioddate BETWEEN '2018-12-31' AND      '2021-12-31' 
+     GROUP BY f.perioddate , 
+              c.companyname , 
+              c.companyid , 
+              lt.value , 
+              s.value , 
+              lh.accountname ) , summarytable_activity AS 
+( 
+          SELECT    d.reporting_date_value , 
+                    sum(a.activity) AS periodactivity , 
+                    a.companyname , 
+                    a.companyid , 
+                    a.ledgertype , 
+                    a.scenario , 
+                    a.account 
+          FROM      reporting_date d 
+          LEFT JOIN activityquery a 
+          ON        d.reporting_date_month >= month(a.perioddate) 
+          AND       d.reporting_date_year = year(a.perioddate) 
+          GROUP BY  d.reporting_date_value , 
+                    a.companyname , 
+                    a.companyid , 
+                    a.ledgertype , 
+                    a.scenario , 
+                    a.account ) , summarytable_beginningbalance AS 
+( 
+          SELECT    d.reporting_date_value , 
+                    sum(a.beginningbalance) AS periodbeginningbalance , 
+                    a.companyname , 
+                    a.companyid , 
+                    a.ledgertype , 
+                    a.scenario , 
+                    a.account 
+          FROM      reporting_date d 
+          LEFT JOIN activityquery a 
+          ON        d.reporting_date_year = year(a.perioddate) 
+          GROUP BY  d.reporting_date_value , 
+                    a.companyname , 
+                    a.companyid , 
+                    a.ledgertype , 
+                    a.scenario , 
+                    a.account ) 
+SELECT    a.reporting_date_value , WITH reporting_date_values AS 
+( 
+         SELECT   Dateadd(month, '-' 
+                           || Row_number() OVER (ORDER BY NULL), Dateadd(month, '+1', '2021-12-01') ) AS date_value 
+         FROM     table (generator(ROWCOUNT => 36)) ) , reporting_date AS 
+( 
+       SELECT date_value            AS reporting_date_value , 
+              year(date_value)      AS reporting_date_year , 
+              month(date_value)     AS reporting_date_month , 
+              monthname(date_value) AS reporting_date_monthname 
+       FROM   reporting_date_values ) , financialbalance AS ( WITH parent_accounts AS 
+( 
+       SELECT 'ALL_Accounts_Receivable_Active' AS parentaccount , 
+              'AR'                             AS accountname 
+       UNION 
+       SELECT 'ALL_Prepaid_Rents' AS parentaccount , 
+              'Prepaid'           AS accountname ) , activityquery AS 
+( 
+       SELECT sum(f.periodactivity)   AS activity , 
+              sum(f.beginningbalance) AS beginningbalance , 
+              f.perioddate , 
+              c.companyname , 
+              c.companyid , 
+              lt.value       AS ledgertype , 
+              s.value        AS scenario , 
+              lh.accountname AS account 
+       FROM   livfinops.finops.wglbalancef f 
+       JOIN   livfinops.finops.wcompanyd c 
+       ON     f.companywid = c.companywid 
+       JOIN   livfinops.finops.wlistofvaluesd lt 
+       ON     lt.valuewid = f.ledgertypewid 
+       AND    lt.lovtype = 'LedgerType' 
+       JOIN   livfinops.finops.wledgeraccountd la 
+       ON     la.ledgeraccountwid = f.ledgeraccountwid 
+       JOIN   ( WITH cte_h_account AS 
+              ( 
+                     SELECT p.accountname , 
+                            ledgeraccounthierarchywid , 
+                            levelid , 
+                            levelname , 
+                            parentlevelwid , 
+                            hierarchyname 
+                     FROM   livfinops.finops.wledgeraccounthierarchyd q 
+                     JOIN   parent_accounts p 
+                     ON     p.parentaccount = q.levelid 
+                     UNION ALL 
+                     SELECT a.accountname , 
+                            b.ledgeraccounthierarchywid , 
+                            b.levelid , 
+                            b.levelname , 
+                            b.parentlevelwid , 
+                            b.hierarchyname 
+                     FROM   livfinops.finops.wledgeraccounthierarchyd b 
+                     JOIN   cte_h_account a 
+                     ON     a.ledgeraccounthierarchywid = b.parentlevelwid ) 
+       SELECT c.accountname , 
+              e.ledgeraccountwid 
+       FROM   cte_h_account c 
+       JOIN   livfinops.finops.wledgeraccounthierarchybridged d 
+       ON     d.ledgeraccounthierarchywid = c.ledgeraccounthierarchywid 
+       JOIN   livfinops.finops.wledgeraccountd e 
+       ON     e.ledgeraccountwid = d.ledgeraccountwid ) lh 
+       ON     lh.ledgeraccountwid = f.ledgeraccountwid 
+       JOIN   livfinops.finops.wlistofvaluesd bc 
+       ON     bc.valuewid = f.bookcodewid 
+       AND    f.bookcodewid IN ( WITH cte_h_bookcode AS 
+                                ( 
+                                       SELECT levelid , 
+                                              bookhierarchywid , 
+                                              parentlevelwid 
+                                       FROM   livfinops.finops.wbookhierarchyd 
+                                       WHERE  levelid = 'AM Reporting' 
+                                       UNION ALL 
+                                       SELECT b.levelid , 
+                                              b.bookhierarchywid , 
+                                              b.parentlevelwid 
+                                       FROM   livfinops.finops.wbookhierarchyd b 
+                                       JOIN   cte_h_bookcode a 
+                                       ON     a.bookhierarchywid = b.parentlevelwid ) 
+                         SELECT   d.valuewid 
+                         FROM     cte_h_bookcode c 
+                         JOIN     livfinops.finops.wlistofvaluesd d 
+                         ON       d.value = c.levelid 
+                         AND      d.lovtype = 'BookCode' ) 
+     JOIN     livfinops.finops.wlistofvaluesd bk 
+     ON       bk.valuewid = f.bookwid 
+     AND      bk.lovtype = 'Book' 
+     AND      bk.value = 'Common Book' 
+     JOIN     livfinops.finops.wlistofvaluesd s 
+     ON       s.valuewid = f.scenariowid 
+     AND      s.lovtype = 'Scenario' 
+     WHERE    f.perioddate BETWEEN '2018-12-31' AND      '2021-12-31' 
+     GROUP BY f.perioddate , 
+              c.companyname , 
+              c.companyid , 
+              lt.value , 
+              s.value , 
+              lh.accountname ) , summarytable_activity AS 
+( 
+          SELECT    d.reporting_date_value , 
+                    sum(a.activity) AS periodactivity , 
+                    a.companyname , 
+                    a.companyid , 
+                    a.ledgertype , 
+                    a.scenario , 
+                    a.account 
+          FROM      reporting_date d 
+          LEFT JOIN activityquery a 
+          ON        d.reporting_date_month >= month(a.perioddate) 
+          AND       d.reporting_date_year = year(a.perioddate) 
+          GROUP BY  d.reporting_date_value , 
+                    a.companyname , 
+                    a.companyid , 
+                    a.ledgertype , 
+                    a.scenario , 
+                    a.account ) , summarytable_beginningbalance AS 
+( 
+          SELECT    d.reporting_date_value , 
+                    sum(a.beginningbalance) AS periodbeginningbalance , 
+                    a.companyname , 
+                    a.companyid , 
+                    a.ledgertype , 
+                    a.scenario , 
+                    a.account 
+          FROM      reporting_date d 
+          LEFT JOIN activityquery a 
+          ON        d.reporting_date_year = year(a.perioddate) 
+          GROUP BY  d.reporting_date_value , 
+                    a.companyname , 
+                    a.companyid , 
+                    a.ledgertype , 
+                    a.scenario , 
+                    a.account ) 
+SELECT    a.reporting_date_value , 
+          a.companyname , 
+          a.companyid , 
+          a.ledgertype , 
+          a.scenario , 
+          a.account , 
+          COALESCE(a.periodactivity, 0) + COALESCE(b.periodbeginningbalance,0) AS periodbalance
+FROM      summarytable_activity a 
+LEFT JOIN summarytable_beginningbalance b 
+ON        a.reporting_date_value = b.reporting_date_value 
+AND       a.companyid = b.companyid 
+AND       a.ledgertype = b.ledgertype 
+AND       a.scenario = b.scenario 
+AND       a.account = b.account ) , totalfinancialbalance AS 
+( 
+         SELECT   companyid , 
+                  account , 
+                  reporting_date_value AS financialperiod , 
+                  sum(periodbalance)   AS financialbalance 
+         FROM     financialbalance 
+         WHERE    ledgertype = 'Actuals' 
+         GROUP BY companyid , 
+                  account , 
+                  reporting_date_value ) 
+SELECT    pm.propertyid , 
+          fin.financialperiod , 
+          fin.account , 
+          fin.financialbalancefrom propertymapping_a pm 
+LEFT JOIN totalfinancialbalance fin 
+ON        fin.companyid = pm.workdaycompanyid
+          a.companyname , 
+          a.companyid , 
+          a.ledgertype , 
+          a.scenario , 
+          a.account , 
+          COALESCE(a.periodactivity, 0) + COALESCE(b.periodbeginningbalance,0) AS periodbalance
+FROM      summarytable_activity a 
+LEFT JOIN summarytable_beginningbalance b 
+ON        a.reporting_date_value = b.reporting_date_value 
+AND       a.companyid = b.companyid 
+AND       a.ledgertype = b.ledgertype 
+AND       a.scenario = b.scenario 
+AND       a.account = b.account ) , totalfinancialbalance AS 
+( 
+         SELECT   companyid , 
+                  account , 
+                  reporting_date_value AS financialperiod , 
+                  sum(periodbalance)   AS financialbalance 
+         FROM     financialbalance 
+         WHERE    ledgertype = 'Actuals' 
+         GROUP BY companyid , 
+                  account , 
+                  reporting_date_value ) 
+SELECT    pm.propertyid , 
+          fin.financialperiod , 
+          fin.account , 
+          fin.financialbalancefrom propertymapping_a pm 
+LEFT JOIN totalfinancialbalance fin 
+ON        fin.companyid = pm.workdaycompanyid

@@ -1,0 +1,67 @@
+WITH MoveIns As
+    (
+        SELECT
+            l.LeasingEntityID
+          , MIN(l.MOVEINDATE) as TenantsEarliestMoveIn
+        FROM
+            PropertyMapping_A pm
+            LEFT JOIN
+                Unit_A u
+                on
+                    u.PropertyAssetID = pm.PropertyAssetID
+            LEFT JOIN
+                Lease_A l
+                on
+                    l.UnitID = u.UnitID
+        WHERE
+            pm.PropertyName  = '55 West'
+            AND l.MOVEINDATE > '2018-01-01'
+            AND l.MOVEINDATE <'2020-09-30'
+        GROUP BY
+            l.LeasingEntityID
+    )
+  , TenantProspectIDs As
+    (
+        SELECT
+            RELATEDLEID       AS ProspectLEID
+          , m.LeasingEntityID as TenantID
+        FROM
+            "DNA_SDW_PD"."LIV_ODS"."LEASINGENTITYRELTN_A" lr1
+            JOIN
+                MoveIns m
+                on
+                    m.LeasingEntityID = lr1.PrimaryLEID
+        WHERE
+            lr1.LeasingRelationshipType = 'Tenant-Prospect'
+    )
+  , AllProspectIDs As
+    (
+        SELECT
+            ProspectLEID
+          , TenantID
+        FROM
+            TenantProspectIDs
+        UNION
+        SELECT
+            RELATEDLEID As ProspectLEID
+          , tp.TenantID
+        FROM
+            "DNA_SDW_PD"."LIV_ODS"."LEASINGENTITYRELTN_A" lr2
+            JOIN
+                TenantProspectIDs tp
+                ON
+                    tp.ProspectLEID = lr2.PRIMARYLEID
+        WHERE
+            lr2.LeasingRelationshipType = 'Parent-Child'
+    )
+SELECT
+    a.TenantID
+  , SUM(12*le.Income + le.EMPLOYMENTADDITIONALINCOME) As TotalIncome
+FROM
+    AllProspectIDs a
+    LEFT JOIN
+        LEASINGENTITY_A le
+        on
+            le.LeasingEntityID = a.ProspectLEID
+GROUP BY
+    TenantID

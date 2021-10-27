@@ -1,0 +1,171 @@
+WITH Financials as (WITH parent_accounts AS
+(
+       SELECT 'LIV_OPS_Net_Operating_Income' AS parentaccount ,
+              'Net Operating Income'         AS accountname
+       UNION
+       SELECT 'LIV_OPS_Operating_Expenses' AS parentaccount ,
+              'Operating Expenses'         AS accountname
+       UNION
+       SELECT 'LIV_OPS_Operations_Total_Revenue' AS parentaccount ,
+              'Total Revenue'                    AS accountname
+       UNION
+       SELECT 'LIV_OPS_Net_Rental_Income' AS parentaccount ,
+              'Net Rental Income'         AS accountname
+       UNION
+       SELECT 'LIV_OPS_Operations_Rental_Income' AS parentaccount ,
+              'Rental Income'                    AS accountname
+       UNION
+       SELECT 'LEDGER_ACCOUNT_SUMMARY-3-1047' AS parentaccount ,
+              'Vacancy Loss'                  AS accountname
+       UNION
+       SELECT 'LEDGER_ACCOUNT_SUMMARY-3-1045' AS parentaccount ,
+              'Gross Potential Rent'          AS accountname ) , validationquery AS
+(
+       SELECT Sum(f.periodactivity) AS activity ,
+              f.perioddate ,
+              c.companyname ,
+              c.companyid ,
+              lt.value       AS ledgertype ,
+              s.value        AS scenario ,
+              lh.accountname AS account
+       FROM   livfinops.finops.wglbalancef f
+       JOIN   livfinops.finops.wcompanyd c
+       ON     f.companywid = c.companywid
+       JOIN   livfinops.finops.wlistofvaluesd lt
+       ON     lt.valuewid = f.ledgertypewid
+       AND    lt.lovtype = 'LedgerType'
+       JOIN   livfinops.finops.wledgeraccountd la
+       ON     la.ledgeraccountwid = f.ledgeraccountwid
+       JOIN   ( WITH cte_h_account AS
+              (
+                     SELECT p.accountname ,
+                            ledgeraccounthierarchywid ,
+                            levelid ,
+                            levelname ,
+                            parentlevelwid ,
+                            hierarchyname
+                     FROM   livfinops.finops.wledgeraccounthierarchyd q
+                     JOIN   parent_accounts p
+                     ON     p.parentaccount = q.levelid
+                     UNION ALL
+                     SELECT a.accountname ,
+                            b.ledgeraccounthierarchywid ,
+                            b.levelid ,
+                            b.levelname ,
+                            b.parentlevelwid ,
+                            b.hierarchyname
+                     FROM   livfinops.finops.wledgeraccounthierarchyd b
+                     JOIN   cte_h_account a
+                     ON     a.ledgeraccounthierarchywid = b.parentlevelwid )
+       SELECT c.accountname ,
+              e.ledgeraccountwid
+       FROM   cte_h_account c
+       JOIN   livfinops.finops.wledgeraccounthierarchybridged d
+       ON     d.ledgeraccounthierarchywid = c.ledgeraccounthierarchywid
+       JOIN   livfinops.finops.wledgeraccountd e
+       ON     e.ledgeraccountwid = d.ledgeraccountwid ) lh
+       ON     lh.ledgeraccountwid = f.ledgeraccountwid
+       JOIN   livfinops.finops.wlistofvaluesd bc
+       ON     bc.valuewid = f.bookcodewid
+       AND    f.bookcodewid IN ( WITH cte_h_bookcode AS
+                                (
+                                       SELECT levelid ,
+                                              bookhierarchywid ,
+                                              parentlevelwid
+                                       FROM   livfinops.finops.wbookhierarchyd
+                                       WHERE  levelid = 'AM Reporting'
+                                       UNION ALL
+                                       SELECT b.levelid ,
+                                              b.bookhierarchywid ,
+                                              b.parentlevelwid
+                                       FROM   livfinops.finops.wbookhierarchyd b
+                                       JOIN   cte_h_bookcode a
+                                       ON     a.bookhierarchywid = b.parentlevelwid )
+                         SELECT   d.valuewid
+                         FROM     cte_h_bookcode c
+                         JOIN     livfinops.finops.wlistofvaluesd d
+                         ON       d.value = c.levelid
+                         AND      d.lovtype = 'BookCode' )
+     JOIN     livfinops.finops.wlistofvaluesd bk
+     ON       bk.valuewid = f.bookwid
+     AND      bk.lovtype = 'Book'
+     AND      bk.value = 'Common Book'
+     JOIN     livfinops.finops.wlistofvaluesd s
+     ON       s.valuewid = f.scenariowid
+     AND      s.lovtype = 'Scenario'
+     WHERE    f.perioddate >= '2019-01-01'
+     AND      f.perioddate < '2022-01-01'
+     GROUP BY f.perioddate ,
+              c.companyname ,
+              c.companyid ,
+              lt.value ,
+              s.value ,
+              lh.accountname ) , summarytable AS
+(
+       SELECT companyid ,
+              companyname ,
+              account ,
+              ledgertype ,
+              scenario ,
+              To_char(perioddate,'YYYY-MM') AS periodmonth ,
+              activity
+       FROM   validationquery )
+SELECT   *
+FROM     summarytable PIVOT(Sum(activity) FOR periodmonth IN ('2019-01',
+                                                              '2019-02' ,
+                                                              '2019-03' ,
+                                                              '2019-04' ,
+                                                              '2019-05' ,
+                                                              '2019-06' ,
+                                                              '2019-07' ,
+                                                              '2019-08' ,
+                                                              '2019-09' ,
+                                                              '2019-10' ,
+                                                              '2019-11' ,
+                                                              '2019-12' ,
+                                                              '2020-01' ,
+                                                              '2020-02' ,
+                                                              '2020-03' ,
+                                                              '2020-04' ,
+                                                              '2020-05' ,
+                                                              '2020-06' ,
+                                                              '2020-07' ,
+                                                              '2020-08' ,
+                                                              '2020-09' ,
+                                                              '2020-10' ,
+                                                              '2020-11' ,
+                                                              '2020-12' ,
+                                                              '2021-01' ,
+                                                              '2021-02' ,
+                                                              '2021-03' ,
+                                                              '2021-04' ,
+                                                              '2021-05' ,
+                                                              '2021-06' ,
+                                                              '2021-07' ,
+                                                              '2021-08' ,
+                                                              '2021-09' ,
+                                                              '2021-10' ,
+                                                              '2021-11' ,
+                                                              '2021-12' )) AS p
+ORDER BY companyname ,
+         account ,
+         ledgertype ,
+         scenario)
+         
+SELECT pm.livcorbupropertyidentifier, pm.reportingstatus,
+CASE 
+    WHEN f.scenario = 'Not Applicable' THEN 'LivCor Baseline'
+    WHEN f.scenario = 'Approved' THEN 'BX Approved'
+    WHEN f.scenario = 'Third_Party' THEN 'Final'
+    WHEN f.scenario = 'Underwriting' THEN 'LivCor Baseline'
+    WHEN f.scenario = 'Q3_Scenario' THEN 'BX Approved'
+END AS PBCS_Version,
+CASE 
+    WHEN f.ledgertype = 'Actuals' AND f.scenario = 'Not Applicable' THEN 'Combined Actuals'
+    WHEN f.ledgertype = 'Budget' AND f.scenario = 'Underwriting' THEN 'BX Underwriting'
+    ELSE f.ledgertype
+END AS PBCS_Scenario,
+f.* FROM Financials f
+LEFT JOIN propertymapping_a pm
+ON f.companyid = pm.workdaycompanyid AND pm.reportingstatus = 'Same Store' AND pm.unitcount > 0
+WHERE f.account <> 'Net Rental Income' AND pm.livcorbupropertyidentifier IS NOT NULL

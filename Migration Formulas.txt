@@ -1,0 +1,85 @@
+Dest Residents by City/State = 
+VAR DEST_MSA_CityState = '3 Digit MSAs Added'[FWD_MSA_City/State]
+VAR PM_MSA_CityState = '3 Digit MSAs Added'[PM_MSA_City/State]
+RETURN
+COUNTROWS(
+        FILTER
+            (ALL('3 Digit MSAs Added'),
+            '3 Digit MSAs Added'[FWD_MSA_City/State]=DEST_MSA_CityState &&
+            '3 Digit MSAs Added'[PM_MSA_City/State] = PM_MSA_CityState
+        )
+)        
+
+Dest Residents by State = 
+VAR DEST_STATE = '3 Digit MSAs Added'[FWD_MSA_State]
+VAR PM_MSA_State = '3 Digit MSAs Added'[PM_MSA_State]
+RETURN
+COUNTROWS(
+        FILTER
+            (ALL('3 Digit MSAs Added'),
+            '3 Digit MSAs Added'[FWD_MSA_State]=DEST_STATE &&
+            '3 Digit MSAs Added'[PM_MSA_State] = PM_MSA_State
+        )
+)        
+
+Dest Residents by State Rank = 
+VAR PM_MSA_State = '3 Digit MSAs Added'[PM_MSA_State]
+RETURN
+RANKX(
+        FILTER
+            ('3 Digit MSAs Added',
+            '3 Digit MSAs Added'[PM_MSA_State]=PM_MSA_State
+        ),
+        '3 Digit MSAs Added'[Dest Residents by State],,desc,Dense
+)
+
+Dest Residents by State Title = "Outbound Migration for "&SELECTEDVALUE('50 States'[Property State],"All States")
+
+Origin Residents by City/State = 
+VAR PRIORSTATE = '3 Digit MSAs Added'[PRIOR_MSA_City/State]
+VAR PM_MSA_State = '3 Digit MSAs Added'[PM_MSA_City/State]
+RETURN
+COUNTROWS(
+        FILTER
+            (ALL('3 Digit MSAs Added'),
+            '3 Digit MSAs Added'[PRIOR_MSA_City/State]=PRIORSTATE &&
+            '3 Digit MSAs Added'[PM_MSA_City/State] = PM_MSA_State
+        )
+)        
+
+Origin Residents by City/State Rank = 
+VAR PM_MSA_State = '3 Digit MSAs Added'[PM_MSA_State]
+RETURN
+RANKX(
+        FILTER
+            ('3 Digit MSAs Added',
+            '3 Digit MSAs Added'[PM_MSA_State]=PM_MSA_State
+        ),
+        '3 Digit MSAs Added'[Origin Residents by City/State],,desc,Dense
+)
+
+Origin Residents by State = 
+VAR PRIORSTATE = '3 Digit MSAs Added'[PRIOR_MSA_State]
+VAR PM_MSA_State = '3 Digit MSAs Added'[PM_MSA_State]
+RETURN
+COUNTROWS(
+        FILTER
+            (ALL('3 Digit MSAs Added'),
+            '3 Digit MSAs Added'[PRIOR_MSA_State]=PRIORSTATE &&
+            '3 Digit MSAs Added'[PM_MSA_State] = PM_MSA_State
+        )
+)        
+
+
+Origin Residents by State Rank = 
+VAR PM_MSA_State = '3 Digit MSAs Added'[PM_MSA_State]
+RETURN
+RANKX(
+        FILTER
+            ('3 Digit MSAs Added',
+            '3 Digit MSAs Added'[PM_MSA_State]=PM_MSA_State
+        ),
+        '3 Digit MSAs Added'[Origin Residents by State],,DESC,Dense
+)
+
+Origin Residents by State Title = "Inbound Migration for "&SELECTEDVALUE('50 States'[Property State],"All States")

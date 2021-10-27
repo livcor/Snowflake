@@ -13,8 +13,8 @@ FROM
             SELECT
                 le.LEASINGAGENT
               , q.PROPERTYASSETID
-              , MIN(le.ETLCREATEDDATE)    As FirstObserved
-              , MAX(le.ETLCREATEDDATE)    As LastObserved
+              , MIN(le.VALIDFROM	)    As FirstObserved
+              , MAX(le.VALIDFROM	)    As LastObserved
               , COUNT(le.LEASINGENTITYID) As NumberObserved
             FROM
                 LeasingEntity_A le

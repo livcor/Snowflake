@@ -466,7 +466,9 @@ WITH mark
                 u.floorplan, 
                 u.squarefootage, 
                 u.bedroomcount, 
-                u.bathroomcount, 
+                u.bathroomcount,
+                u.unitid,
+                pm.unitcount,
                 ue.uniteventname, 
                 l.leaseterm, 
                 l.renewallease, 
@@ -494,6 +496,8 @@ WITH mark
                           AND u.dl_iscurrent = 1 
                           AND ( u.isexclusionflag IS NULL 
                                  OR u.isexclusionflag <> '-1' ) 
+                          AND   (u.UnitName NOT LIKE '%WAIT%'
+                                        AND u.UnitName NOT LIKE '%GAR%')
                 LEFT JOIN unitevent_a ue 
                        ON u.unitid = ue.unitid 
                           AND ue.uniteventname = 'Occupied No Notice' 
@@ -505,7 +509,11 @@ WITH mark
                 LEFT JOIN leaserate rate 
                        ON rate.leaseid = l.leaseid 
                           AND rate.dl_iscurrent = 1 
-                          AND rate.leaseratetypename IN ( 'rent', 'LeaseRent' ) 
+                          AND rate.leaseratetypename IN ( 'rent', 'LeaseRent', 
+                                            'rnta', 
+                                            'RENT', 
+                                            'rentres', 
+                                            'cha-rent' ) 
                 LEFT JOIN codemapping_a cma 
                        ON l.leasestatus = cma.sourcevalue 
                           AND cma.attribute = 'LeaseStatus' 
@@ -537,11 +545,12 @@ WITH mark
                 AND pm.investment <> 'Caiola' 
                 AND pm.reportingstatus <> 'Dispo' 
                 AND pm.unitcount > 0 
-                AND pm.propertyname LIKE '%Sabal Palm%' 
+                AND pm.propertyname LIKE '%Allora Bella%' 
                 AND pm.dl_iscurrent = 1 
                 AND l.leasingentityid IS NOT NULL 
                 AND l.moveindate IS NOT NULL 
-                AND u.unitname = '04-203'), 
+              
+        ), 
      a 
      AS (SELECT *, 
                 Row_number() 
@@ -575,7 +584,9 @@ WITH mark
                 c.unitname, 
                 c.squarefootage, 
                 c.bedroomcount, 
-                c.bathroomcount, 
+                c.bathroomcount,
+                c.unitid,
+                c.unitcount,
                 Max(CASE 
                       WHEN grab_latest = '1' THEN c.validfrom 
                     END) AS VALIDFROM_1, 
@@ -690,7 +701,9 @@ WITH mark
                    c.unitname, 
                    c.squarefootage, 
                    c.bedroomcount, 
-                   c.bathroomcount 
+                   c.bathroomcount,
+                   c.unitid,
+                   c.unitcount
          ORDER  BY c.livcorbupropertyidentifier, 
                    c.propertyname, 
                    c.unitname, 
@@ -701,4 +714,6 @@ SELECT pma.propertymgmtcompanyname AS Current_Operator,
        d.* 
 FROM   d 
        LEFT JOIN propertymapping_a pma 
-              ON d.livcorbupropertyidentifier = pma.livcorbupropertyidentifier              
+              ON d.livcorbupropertyidentifier = pma.livcorbupropertyidentifier     
+              WHERE LEASESTARTDATE_1 is not null and MOVEINDATE_1 is not null
+              

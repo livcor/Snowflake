@@ -1,0 +1,149 @@
+WITH MSU AS 
+
+(SELECT      
+            RR.COMMUNITY_NAME
+            ,RR.UNIT_NUMBER
+            ,RR.LEASE_START_DATE
+            ,date_trunc('DAY',PropertyUnit.LEASESTARTDATE_1) as DNA_Lease_Start_Date
+            ,RR.LEASE_END_DATE
+            ,date_trunc('DAY',PropertyUnit.LEASEENDDATE_1) as DNA_Lease_End_Date
+            ,PropertyUnit.PROPERTYNAME
+            ,PropertyUnit.UnitName
+
+FROM        "DNA_SDW_PD"."LIV_YIELDSTAR"."RENTROLL" RR
+LEFT JOIN   (
+  
+ WITH MARK AS (SELECT pm.propertymgmtcompanyname, 
+                pm.livcorbupropertyidentifier, 
+                pm.propertyname, 
+                pm.validfrom, 
+                pm.validto, 
+                u.unitname, 
+                u.floorplan, 
+                u.squarefootage, 
+                u.bedroomcount, 
+                u.bathroomcount, 
+                l.leaseterm, 
+                l.renewallease, 
+                l.leasestartdate, 
+                l.leaseenddate, 
+                l.moveindate,
+                l.moveoutdate,
+                l.alternativerent, 
+                l.leasingentityid, 
+                l.leaseid,
+                Row_number() 
+                  OVER ( 
+                    partition BY pm.livcorbupropertyidentifier, u.unitname, 
+                  l.renewallease, l.leasestartdate, l.leasingentityid
+                    ORDER BY l.leasestartdate DESC) AS dup 
+         FROM   "DNA_SDW_PD"."LIV_ODS"."LEASE_A" L
+         
+                LEFT JOIN "DNA_SDW_PD"."LIV_ODS"."UNIT_A" U
+                ON l.unitid = u.unitid
+         
+         
+                LEFT JOIN "DNA_SDW_PD"."LIV_ODS"."PROPERTYMAPPING" PM
+                ON u.propertyassetid = pm.propertyassetid
+         
+                AND pm.investment <> 'Caiola' 
+                AND pm.reportingstatus <> 'Dispo' 
+                AND pm.unitcount > 0 
+                
+                            
+
+ WHERE          1=1
+        )
+  , 
+     a 
+     AS (SELECT *, 
+                Row_number() 
+                  OVER ( 
+                    partition BY unitname, propertyname, leasestartdate 
+                    ORDER BY leasestartdate DESC, validfrom DESC) AS sort 
+         FROM   mark 
+         WHERE  dup = 1 --and leaseratetypename is not NULL 
+         AND LeaseStartDate IS NOT NULL
+         ORDER  BY unitname, 
+                   leasestartdate)
+                  , 
+     b 
+     AS (SELECT *, 
+                Row_number() 
+                  OVER ( 
+                    partition BY unitname, propertyname 
+                    ORDER BY leasestartdate DESC) AS grab_two 
+         FROM   a 
+         WHERE  sort = 1) 
+  ,
+c as (SELECT * 
+FROM   b 
+WHERE  grab_two IN ( 1, 2 ) ) 
+,
+FINAL AS (
+
+SELECT 
+LIVCORBUPROPERTYIDENTIFIER
+,PROPERTYNAME
+,UNITNAME
+,SQUAREFOOTAGE
+,BEDROOMCOUNT
+,BATHROOMCOUNT
+,MAX(CASE WHEN GRAB_TWO = '1' THEN FLOORPLAN END) as FLOORPLAN_1
+,MAX(CASE WHEN GRAB_TWO = '1' THEN LEASETERM END) as LEASETERM_1
+,MAX(CASE WHEN GRAB_TWO = '1' THEN LEASESTARTDATE END) as LEASESTARTDATE_1
+,MAX(CASE WHEN GRAB_TWO = '1' THEN LEASEENDDATE END) as LEASEENDDATE_1
+,MAX(CASE WHEN GRAB_TWO = '1' THEN MOVEINDATE END) as MOVEINDATE_1
+,MAX(CASE WHEN GRAB_TWO = '1' THEN MOVEOUTDATE END) as MOVEOUTDATE_1
+,MAX(CASE WHEN GRAB_TWO = '1' THEN LEASINGENTITYID END) as LEASINGENTITYID_1
+,MAX(CASE WHEN GRAB_TWO = '1' THEN PROPERTYMGMTCOMPANYNAME END) as PROPERTYMGMTCOMPANYNAME_1
+,MAX(CASE WHEN GRAB_TWO = '1' THEN RENEWALLEASE END) as RENEWALLEASE_1
+,MAX(CASE WHEN GRAB_TWO = '1' THEN LEASEID END) as LEASEID_1
+
+
+FROM C
+
+
+GROUP BY 
+LIVCORBUPROPERTYIDENTIFIER
+,PROPERTYNAME
+,UNITNAME
+,SQUAREFOOTAGE
+,BEDROOMCOUNT
+,BATHROOMCOUNT
+
+ORDER BY 
+LIVCORBUPROPERTYIDENTIFIER
+,PROPERTYNAME
+,UNITNAME
+,SQUAREFOOTAGE
+,BEDROOMCOUNT
+,BATHROOMCOUNT
+)
+          
+             
+             SELECT *
+FROM Final
+             
+             
+             ) PropertyUnit
+             ON     
+                RR.COMMUNITY_NAME = PropertyUnit.PROPERTYNAME
+             AND
+                RR.UNIT_NUMBER = PropertyUnit.UNITNAME
+                
+
+WHERE       1=1
+        AND RR.DL_ISCURRENT = 'TRUE'
+ORDER BY RR.Community_Name,RR.Unit_Number)
+SELECT *,
+DateDiff('DAY',LEASE_START_DATE,DNA_LEASE_START_DATE) as START_Diff,
+DateDiff('DAY',LEASE_END_DATE,DNA_LEASE_END_DATE) as END_Diff
+FROM MSU
+WHERE 1=1 
+AND LEASE_START_DATE IS NOT NULL
+AND DNA_LEASE_START_DATE IS NOT NULL
+AND LEASE_START_DATE <> ''
+AND LEASE_START_DATE <> DNA_LEASE_START_DATE
+AND DNA_LEASE_START_DATE < (Current_Date - 7)
+ORDER BY STart_Diff desc

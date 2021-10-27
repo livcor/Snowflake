@@ -1,0 +1,295 @@
+WITH msu AS
+(
+          SELECT    rr.community_name ,
+                    rr.building ,
+                    rr.unit_number as unit_name,
+  rr.unit_type,
+  rr.YS_FLOOR_PLAN,
+                    CASE
+                              WHEN rr.community_name IN ('Cortland Viridian' ,
+                                                         'Mirador & Stovall at River City' ,
+                                                         'Cortland on Cherry Creek' ,
+                                                         'Arches at Hidden Creek' ,
+                                                         'Brooks Landing' ,
+                                                         'Cape House' ,
+                                                         'Columbia Trails' ,
+                                                         'Cortland Bermuda Lake' ,
+                                                         'Cortland Lake Lotus' ,
+                                                         'Cortland Mirror Lake' ,
+                                                         'Eaglewood' ,
+                                                         'River Trail' ,
+                                                         'Sierra Oaks' ,
+                                                         'Station 92' ,
+                                                         'Sterling Pointe' ,
+                                                         'The Highlands at Spectrum' ,
+                                                         'Woodland' ,
+                                                         'Woodlands West' ,
+                                                         'Arches At Hidden Creek' ) THEN Concat(rr.building,'-',rr.unit_number)
+                              ELSE unit_number
+                    END AS unit_number ,
+                    rr.lease_start_date ,
+                    Date_trunc('DAY',propertyunit.leasestartdate_1) AS dna_lease_start_date ,
+                    rr.lease_end_date ,
+                    Date_trunc('DAY',propertyunit.leaseenddate_1) AS dna_lease_end_date ,
+                    propertyunit.propertyname ,
+                    propertyunit.unitname,
+                    propertyunit.unitid,
+                    propertyunit.livcorbupropertyidentifier,
+                    propertyunit.LEASEID_1,
+                    propertyunit.PROPERTYMGMTCOMPANYNAME_1,
+                    propertyunit.LEASEEVENTNAME_1,
+                    propertyunit.LEASEEVENTNAME_2,
+                    propertyunit.LEASEEVENTNAME_3
+          FROM      "DNA_SDW_PD"."LIV_YIELDSTAR"."RENTROLL" RR
+          LEFT JOIN (   WITH mark AS
+                    (
+                              SELECT    pm.propertymgmtcompanyname,
+                                        pm.livcorbupropertyidentifier,
+                                        CASE
+                                                            //when pm.propertyname = 'Aleo at North Glen' THEN 'Cortland MacArthur'
+                                                  WHEN (
+                                                                      pm.propertyname = 'The Drexel'
+                                                            OR        pm.propertyname = 'The Heights at Perimeter Center'
+                                                            OR        pm.propertyname = 'The Lofts at Perimeter Center') THEN 'The Drexel Collective'
+                                                  WHEN (
+                                                                      pm.propertyname = 'Mountain Gate'
+                                                            OR        pm.propertyname = 'Mountain Trails') THEN 'Mountain Gate Trails'
+                                                  WHEN pm.propertyname = 'Miramar' THEN 'Horizon at Miramar'
+                                                  WHEN pm.propertyname = 'Citigate' THEN 'Citigate Apartments'
+                                                  WHEN pm.propertyname = 'Colonnade' THEN 'Colonnade at Fletcher Hills'
+                                                  WHEN pm.propertyname = 'Arium Town Center' THEN 'Timucuan Lakeside at Town Center'
+                                                  WHEN pm.propertyname = 'Edgewater at the Cove' THEN 'Edgewater at The Cove'
+                                                  WHEN pm.propertyname = 'Kia Ora Park' THEN 'Kia Ora'
+                                                  WHEN pm.propertyname = 'Avens Point' THEN 'Montair(Avens Point)'
+                                                  WHEN pm.propertyname = 'Verandahs of Brighton Bay' THEN 'Verandahs Of Brighton Bay'
+                                                  WHEN (
+                                                                      pm.propertyname = 'Kaimana' 
+                                                            OR        pm.propertyname = 'Makai'
+                                                            OR        pm.propertyname = 'Mahana') THEN 'Kalaeloa'
+                                                  WHEN (
+                                                                      pm.propertyname = 'Mirador'
+                                                            OR        pm.propertyname = 'Stovall') THEN 'Mirador & Stovall at River City'
+                                                  WHEN (
+                                                                      pm.propertyname = 'Casa Vera Phase I'
+                                                            OR        pm.propertyname = 'Casa Vera Phase II') THEN 'Casa Vera'
+                                                  WHEN pm.propertyname = 'Notting Hill' THEN 'Notting Hills'
+                                                  WHEN pm.propertyname = 'Arches at Hidden Creek' THEN 'Arches At Hidden Creek'
+                                                  ELSE pm.propertyname
+                                        END AS propertyname,
+                                        pm.validfrom,
+                                        pm.validto,
+                                        CASE
+                                                  WHEN (
+                                                                      pm.propertyname = 'Kaimana'
+                                                            OR        pm.propertyname = 'Makai'
+                                                            OR        pm.propertyname = 'Mahana') THEN RIGHT(u.unitname,5)
+                                                  ELSE u.unitname
+                                        END AS unitname,
+                                        u.floorplan,
+                                        u.squarefootage,
+                                        u.bedroomcount,
+                                        u.bathroomcount,
+                                        u.unitid,
+                                        l.leaseterm,
+                                        l.renewallease,
+                                        l.leasestartdate,
+                                        l.leaseenddate,
+                                        l.moveindate,
+                                        l.moveoutdate,
+                                        l.alternativerent,
+                                        l.leasingentityid,
+                                        l.leaseid,
+                                        l.NOTICEONDATE,
+                                        l.LEASESIGNEDDATE,
+                                        pm.PROPERTYASSETSOURCE,
+                                        B.LEASEEVENTNAME_1,
+                                        B.LEASEEVENTNAME_2,
+                                        B.LEASEEVENTNAME_3,
+                                        row_number() OVER ( partition BY pm.livcorbupropertyidentifier,pm.propertyname, u.unitname, l.renewallease, l.leasestartdate, l.leasingentityid ORDER BY l.leasestartdate DESC) AS dup
+                              FROM      "DNA_SDW_PD"."LIV_ODS"."LEASE_A" l
+                              LEFT JOIN "DNA_SDW_PD"."LIV_ODS"."UNIT_A" u
+                              ON        l.unitid = u.unitid
+                              LEFT JOIN (
+SELECT  LeaseID
+        ,EventDate
+        ,MAX(CASE WHEN Number = 1 THEN LEASEEVENTNAME ELSE NULL END) AS LEASEEVENTNAME_1
+        ,MAX(CASE WHEN Number = 2 THEN LEASEEVENTNAME ELSE NULL END) AS LEASEEVENTNAME_2
+        ,MAX(CASE WHEN Number = 3 THEN LEASEEVENTNAME ELSE NULL END) AS LEASEEVENTNAME_3
+FROM (
+SELECT  LeaseID
+        ,EventDate
+        ,LEASEEVENTNAME
+        ,ROW_NUMBER() OVER (PARTITION BY LEASEID ORDER BY EVENTDATE desc) as Number
+FROM (    SELECT 
+            LE.LEASEID
+            ,LE.EVENTDATE
+            ,LE.LEASEEVENTNAME
+            ,DENSE_RANK() OVER ( partition BY LE.leaseid order by LE.eventdate desc) as RANK
+            
+            FROM "DNA_SDW_PD"."LIV_ODS"."LEASEEVENT_A" LE
+WHERE       1=1
+AND         EVENTDATE IS NOT NULL
+ORDER BY    LeaseID
+            ,Eventdate desc
+            )
+            WHERE 1=1
+            and RANK = 1)
+            GROUP BY LeaseID, EventDate) B ON L.LeaseID = B.LeaseID
+                      LEFT JOIN (SELECT  LeaseID
+        ,EventDate
+        ,LEASEEVENTNAME
+FROM (    SELECT 
+            LE.LEASEID
+            ,LE.EVENTDATE
+            ,LE.LEASEEVENTNAME
+            ,DENSE_RANK() OVER ( partition BY LE.leaseid order by LE.eventdate desc) as RANK
+            
+            FROM "DNA_SDW_PD"."LIV_ODS"."LEASEEVENT_A" LE
+WHERE       1=1
+AND         EVENTDATE IS NOT NULL
+ORDER BY    LeaseID
+            ,Eventdate desc
+            )
+            WHERE 1=1
+            and RANK = 1
+            AND LEASEEVENTNAME = 'Lease Renewal Canceled')
+                       C ON L.LeaseID = C.LeaseID
+                              LEFT JOIN "DNA_SDW_PD"."LIV_ODS"."PROPERTYMAPPING" pm
+                              ON        u.propertyassetid = pm.propertyassetid
+                              AND       pm.investment <> 'Caiola'
+                              AND       pm.reportingstatus <> 'Dispo'
+                              AND       pm.unitcount > 0
+
+                              WHERE     1=1 
+                              and       l.leasestartdate < l.leaseenddate
+                              and       l.moveindate is not NULL 
+//                              AND       (L.LeaseStatus <> 2 )
+                              AND       (L.LeaseID <> C.LeaseID OR C.LeaseID IS NULL)
+                                ) , a AS
+                    (
+                             SELECT   *,
+                                      row_number() OVER ( partition BY unitname, propertyname, leasestartdate ORDER BY leasestartdate DESC, validfrom DESC) AS sort
+                             FROM     mark
+                             WHERE    dup = 1 --and leaseratetypename is not NULL
+                             AND      leasestartdate IS NOT NULL
+                             ORDER BY unitname,
+                                      leasestartdate) 
+                     , b AS
+                    (
+                             SELECT   *,
+                                      row_number() OVER ( partition BY unitname, propertyname ORDER BY leasestartdate DESC) AS leasenum
+                             FROM     a
+                             WHERE    sort = 1) , c AS
+                    (
+                           SELECT *
+                           FROM   b
+                           WHERE  leasenum IN ( 1,
+                                               2 ) ) , final AS
+                    (
+                             SELECT   livcorbupropertyidentifier
+                                      ,propertyname
+                                      ,unitname
+                      , unitid
+                                      ,squarefootage
+                                      ,MAX(CASE WHEN leasenum = '1' THEN FLOORPLAN END) as FLOORPLAN_1
+                                      ,MAX(CASE WHEN leasenum = '1' THEN LEASETERM END) as LEASETERM_1
+                                      ,MAX(CASE WHEN leasenum = '1' THEN LEASESTARTDATE END) as LEASESTARTDATE_1
+                                      ,MAX(CASE WHEN leasenum = '1' THEN LEASEENDDATE END) as LEASEENDDATE_1
+                                      ,MAX(CASE WHEN leasenum = '1' THEN MOVEINDATE END) as MOVEINDATE_1
+                                      ,MAX(CASE WHEN leasenum = '1' THEN MOVEOUTDATE END) as MOVEOUTDATE_1
+                                      ,MAX(CASE WHEN leasenum = '1' THEN LEASINGENTITYID END) as LEASINGENTITYID_1
+                                      ,MAX(CASE WHEN leasenum = '1' THEN PROPERTYMGMTCOMPANYNAME END) as PROPERTYMGMTCOMPANYNAME_1
+                                      ,MAX(CASE WHEN leasenum = '1' THEN RENEWALLEASE END) as RENEWALLEASE_1
+                                      ,MAX(CASE WHEN leasenum = '1' THEN LEASEID END) as LEASEID_1
+                                      ,MAX(CASE WHEN leasenum = '1' THEN LEASESIGNEDDATE END) as LEASESIGNEDDATE_1
+                                      ,MAX(CASE WHEN leasenum = '1' THEN NOTICEONDATE END) as NoticeOnDate_1
+                                      ,MAX(CASE WHEN leasenum = '1' THEN LEASEEVENTNAME_1 END) as LEASEEVENTNAME_1
+                                      ,MAX(CASE WHEN leasenum = '1' THEN LEASEEVENTNAME_2 END) as LEASEEVENTNAME_2
+                                      ,MAX(CASE WHEN leasenum = '1' THEN LEASEEVENTNAME_3 END) as LEASEEVENTNAME_3
+                             FROM     c
+                             GROUP BY livcorbupropertyidentifier ,
+                                      propertyname ,
+                                      unitname ,
+                                      unitid,
+                                      squarefootage ,
+                                      bathroomcount
+                             ORDER BY livcorbupropertyidentifier ,
+                                      propertyname ,
+                                      unitname ,
+                                      squarefootage ,
+                                      bathroomcount 
+                                      )
+           SELECT   *
+           FROM     final 
+                    order by propertyname,unitname) propertyunit
+           ON       rr.community_name = propertyunit.propertyname
+           AND
+                    CASE
+                             WHEN rr.community_name IN ('Cortland Viridian' ,
+                                                        'Mirador & Stovall at River City' ,
+                                                        'Cortland on Cherry Creek' ,
+                                                        'Arches at Hidden Creek' ,
+                                                        'Brooks Landing' ,
+                                                        'Cape House' ,
+                                                        'Columbia Trails' ,
+                                                        'Cortland Bermuda Lake' ,
+                                                        'Cortland Lake Lotus' ,
+                                                        'Cortland Mirror Lake' ,
+                                                        'Eaglewood' ,
+                                                        'River Trail' ,
+                                                        'Sierra Oaks' ,
+                                                        'Station 92' ,
+                                                        'Sterling Pointe' ,
+                                                        'The Highlands at Spectrum' ,
+                                                        'Woodland' ,
+                                                        'Woodlands West' ,
+                                                        'Arches At Hidden Creek' ) THEN concat(rr.building,'-',rr.unit_number)
+                             ELSE unit_number
+                    END = propertyunit.unitname
+           WHERE    1=1
+           AND      rr.dl_iscurrent = 'TRUE'
+           ORDER BY rr.community_name,rr.unit_number)
+
+-- drop in operator & PMS
+-- move in date sign date, notice date 
+           
+
+-- Matt 
+SELECT 
+PROPERTYMGMTCOMPANYNAME_1
+,msu.Community_name
+,livcorbupropertyidentifier
+,msu.building
+,msu.unit_name
+,msu.unit_number
+, msu.unitid
+, msu.unit_type
+, msu.ys_floor_plan
+,YS.YSKEY
+, CONCAT(msu.Community_name,msu.building,msu.unit_name) as rrkey
+FROM     msu
+LEFt JOIN "LIV_SANDBOX"."MAPPING"."YS_UNIT" YS 
+ON msu.unitid = YS.unitid
+WHERE 1=1    
+//AND      lease_start_date IS NOT NULL
+//AND      dna_lease_start_date IS NOT NULL 
+//AND      lease_start_date <> ''
+////AND      lease_start_date = dna_lease_start_date
+//AND      (lease_start_date <> dna_lease_start_date
+//         OR lease_end_date <> dna_lease_end_date)
+//AND      dna_lease_start_date < (CURRENT_DATE - 7)
+//AND       COMMUNITY_NAME NOT IN ('Doral View','The Drexel Collective','Satori Olathe','Cyan Southcreek')
+//GROUP BY 
+//PROPERTYMGMTCOMPANYNAME_1
+//,Community_name
+//,livcorbupropertyidentifier
+//and community_name like '15Fifty%'
+//AND (LEASEEVENTNAME_1 = 'Lease Renewal Canceled' OR LEASEEVENTNAME_2 = 'Lease Renewal Canceled' OR LEASEEVENTNAME_3 = 'Lease Renewal Canceled')
+ORDER BY PROPERTYMGMTCOMPANYNAME_1,COMMUNITY_NAME,UNIT_NUMBER
+
+//ORDER BY Units desc
+//
+//select * from "LIV_SANDBOX"."REALPAGE"."YSUNITMAPPING"
+//where property_name LIKE 'Avana 3131%'
+//
+//, CONCAT('''', UNITID)

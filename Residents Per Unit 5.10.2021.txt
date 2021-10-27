@@ -1,0 +1,92 @@
+
+    WITH ResidentsPerUnit AS (
+    
+      SELECT
+    pm.PropertyMgmtCompanyName
+  , pm.PropertyName
+  , u.UnitName
+  , l.MOVEINDATE
+  , l.MOVEOUTDATE
+  , l.LEASESTARTDATE
+  , l.LEASEENDDATE
+  , COALESCE(1+occ.CountOccupants, 1) As CountOfOccupants
+FROM
+    PropertyMapping_A pm
+    LEFT JOIN
+        Unit_A u
+        on
+            pm.PropertyAssetID = u.PropertyAssetID
+    LEFT JOIN
+        Lease_A l
+        on
+            u.UnitID = l.UnitID
+            and
+            (
+                l.MOVEINDATE         <= CURRENT_DATE
+                or l.MOVEINDATE IS NULL
+            )
+            and
+            (
+                l.MOVEOUTDATE > CURRENT_DATE
+                or
+                (
+                    l.MOVEOUTDATE        IS NULL
+                    and l.MOVEINDATE IS NOT NULL
+                )
+            )
+    LEFT JOIN
+        LEASINGENTITYRELTN_A ler
+        on
+            l.leasingentityID               = ler.PRIMARYLEID
+            and ler.LEASINGRELATIONSHIPTYPE = 'Tenant-Prospect'
+    LEFT JOIN
+        (
+            SELECT
+                le.LEASINGENTITYID
+              , count(lec.RELATEDLEID) As CountOccupants
+            FROM
+                LEASINGENTITY_A le
+                LEFT JOIN
+                    LEASINGENTITYRELTN_A lec
+                    on
+                        lec.LEASINGRELATIONSHIPTYPE = 'Parent-Child'
+                        AND le.LEASINGENTITYID      = lec.PRIMARYLEID
+                LEFT JOIN
+                    LEASINGENTITY_A lece
+                    on
+                        lece.LEASINGENTITYID = lec.RELATEDLEID
+            WHERE
+                lece.ISOCCUPANT = '0'
+            GROUP BY
+                le.LEASINGENTITYID
+        )
+        occ
+        on
+            occ.LEASINGENTITYID = ler.RELATEDLEID
+WHERE
+    (
+        u.ISEXCLUSIONFLAG         <> -1
+        OR u.ISEXCLUSIONFLAG IS NULL
+    )
+    AND pm.ReportingStatus <> 'Dispo'
+ORDER BY
+    pm.PropertyMgmtCompanyName
+  , pm.PropertyName
+  , u.UnitName
+  , l.LEASESTARTDATE)
+    
+    SELECT 
+//    PROPERTYMGMTCOMPANYNAME
+//    ,PROPERTYNAME
+//    ,MAX(LEASESTARTDATE) NewestLease
+    (SUM(COUNTOFOCCUPANTS) / COUNT(UnitName)) as ResidentsPerUnit
+    FROM ResidentsPerUnit
+    WHERE 1=1
+    AND LEASESTARTDATE > '1/1/2021'
+    AND LEASESTARTDATE < '3/31/2021'
+//    GROUP BY 
+//    PROPERTYMGMTCOMPANYNAME
+//    ,PROPERTYNAME
+  HAVING RESIDENTSPERUNIT > 1
+  
+

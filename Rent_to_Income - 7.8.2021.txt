@@ -1,0 +1,308 @@
+WITH moveins AS 
+
+// Gathers all leasingentity ids from specified move in time period from active assets
+( 
+          SELECT    l.leasingentityid  
+//                    Min(l.moveindate) AS tenantsearliestmovein 
+          FROM      propertymapping_a pm 
+          LEFT JOIN unit_a u 
+          ON        u.propertyassetid = pm.propertyassetid 
+          LEFT JOIN lease_a l 
+          ON        l.unitid = u.unitid 
+          WHERE     1=1 
+          AND       pm.reportingstatus <> 'Dispo' 
+          AND       pm.unitcount > 0 
+          AND       l.leasestartdate > DATEADD(year,-2,DATE_TRUNC('year',current_date()))
+          AND       l.leasestartdate < current_date() 
+          GROUP BY  l.leasingentityid ) ,
+
+// Gathers all prospect ids related to leasingentity ids from moveins table
+tenantprospectids AS 
+
+( 
+       SELECT relatedleid       AS prospectleid , 
+              m.leasingentityid AS tenantid 
+       FROM   "DNA_SDW_PD"."LIV_ODS"."LEASINGENTITYRELTN_A" lr1 
+       JOIN   moveins m 
+       ON     m.leasingentityid = lr1.primaryleid 
+       WHERE  lr1.leasingrelationshiptype = 'Tenant-Prospect' ) , 
+
+// Gathers all related prospect ids linked via 'Parent-Child' relationship to singular prospect id from tenantprospectids table above
+allprospectids AS 
+( 
+       SELECT prospectleid , 
+              tenantid 
+       FROM   tenantprospectids 
+       UNION 
+       SELECT relatedleid AS prospectleid , 
+              tp.tenantid 
+       FROM   "DNA_SDW_PD"."LIV_ODS"."LEASINGENTITYRELTN_A" lr2 
+       JOIN   tenantprospectids tp 
+       ON     tp.prospectleid = lr2.primaryleid 
+       WHERE  lr2.leasingrelationshiptype = 'Parent-Child' ) ,
+
+// Designates primary prospect id from allprospectids table above by selecting tenantid with largest income, brings in additional informational fields
+primarytenant AS 
+( 
+          SELECT    a.tenantid, 
+                    a.prospectleid, 
+                    le.employer, 
+                    le.position, 
+                    le.employerindustry , 
+                    le.priorcity, 
+                    le.priorstate, 
+                    le.dateofbirth, 
+                    le.priorpostalcode,
+                    le.income,
+                    Row_number() OVER ( partition BY a.tenantid ORDER BY le.income desc ) AS dup
+          FROM      allprospectids a 
+          LEFT JOIN leasingentity_a le 
+          ON        a.prospectleid = le.leasingentityid 
+          AND       le.isoccupant = '0' 
+          WHERE     le.income IS NOT NULL
+                    
+                    -- group by a.tenantid, le.position 
+)
+
+,
+
+// Sums all annual household income and groups by tenantid
+householdincome AS 
+( 
+          SELECT    a.tenantid , 
+                    Sum(12*le.income + le.employmentadditionalincome) AS totalincome 
+          FROM      allprospectids a 
+          LEFT JOIN leasingentity_a le 
+          ON        a.prospectleid = le.leasingentityid 
+          GROUP BY  a.tenantid ) , 
+
+// Gathers all current leasing information related to latest lease associated with tenant id from primarytenant table
+currentleaseinfo AS 
+( 
+          SELECT    i.tenantid, 
+                    i.totalincome, 
+                    l.* , 
+                    Row_number() OVER ( partition BY i.tenantid,i.totalincome ORDER BY l.leasestartdate DESC ) AS dup
+          FROM      householdincome i 
+          LEFT JOIN lease_a l 
+          ON        i.tenantid = l.leasingentityid ) ,
+
+
+// Brings in earliest moveindate associated with tenant from primarytenant for contextual information in final table
+mindate AS 
+( 
+         SELECT   a.tenantid, 
+                  Min(moveindate) AS earliestmoveindate 
+         FROM     currentleaseinfo A 
+         GROUP BY a.tenantid) , 
+
+// Brings in largest current rent rate associated with leaseid from currentleaseinfo table
+leaserate AS 
+( 
+          SELECT    a.leaseid, 
+                    r.leaseratetypename, 
+                    Max(r.leaserateamount) AS maxrentrate, 
+                    Max(r.ratestartdate)   AS latestratestartdate 
+                    -- Row_number() OVER ( partition BY A.leaseid ORDER BY R.leaserateamount desc ) as dup 
+          FROM      currentleaseinfo A 
+          LEFT JOIN leaserate_a R 
+          ON        a.leaseid = r.leaseid 
+          AND       r.leaseratetypename IN ('rent', 
+                                            'rnta', 
+                                            'RENT', 
+                                            'rentres', 
+                                            'cha-rent') 
+          WHERE     a.dup = 1 
+          GROUP BY  a.leaseid, 
+                    r.leaseratetypename ) ,
+
+
+// Brings everything together in final table format, adding property information from propertymapping table
+propertyinfo AS 
+( 
+          SELECT    a.tenantid , 
+                    a.leaseid , 
+                    pm.livcorbupropertyidentifier , 
+                    pm.propertyname , 
+                    pm.propertymgmtcompanyname , 
+                    pm.postalcode , 
+                    pm.metrostatisticalarea , 
+                    pm.city , 
+                    pm.state , 
+                    pm.latitude , 
+                    pm.longitude , 
+                    pm.assetgrade , 
+                    u.unitname , 
+                    u.bedroomcount , 
+                    u.bathroomcount , 
+                    CAST(NULLIF(a.leasestartdate,'1/1/2000') as DATE) as leasestartdate, 
+                    CAST(NULLIF(a.leaseenddate,'1/1/2000') AS DATE) AS leaseenddate, 
+                    mindate.earliestmoveindate , 
+                    a.moveoutdate , 
+                    a.totalincome , 
+                    ifnull(pt.employer,le.employer) as employer, 
+                    ifnull(pt.position,le.position) as position,
+                    ifnull(pt.employerindustry,le.employerindustry) as employerindustry,
+                    ifnull(pt.priorcity,le.priorcity) as priorcity, 
+                    ifnull(pt.priorstate,le.priorstate) as priorstate,
+                    ifnull(pt.dateofbirth,le.dateofbirth) as dateofbirth,
+                    ifnull(pt.priorpostalcode,le.priorpostalcode) as priorpostalcode , 
+                    lr.leaseratetypename, 
+                    lr.maxrentrate,
+		    add.city as fwd_city,
+		    add.state as fwd_state,
+		    add.zipcode as fwd_zipcode
+          FROM      currentleaseinfo a
+          LEFT JOIN mindate
+          ON        a.tenantid = mindate.tenantid 
+          LEFT JOIN unit_a u 
+          ON        a.unitid = u.unitid 
+          LEFT JOIN propertymapping_a PM 
+          ON        u.propertyassetid = pm.propertyassetid 
+          LEFT JOIN primarytenant pt 
+          ON        a.tenantid = pt.tenantid 
+          AND       pt.dup = 1 
+          LEFT JOIN leaserate lr 
+          ON        a.leaseid = lr.leaseid 
+          LEFT JOIN leasingentity_a le 
+          ON        a.tenantid = le.leasingentityid 
+	      LEFT JOIN address add
+	      ON 	    a.tenantid = add.leasingentityid
+        AND add.ACTIVEIND = 1
+        AND add.DL_ISCURRENT = 1
+          WHERE     1=1 
+          AND       a.dup = 1
+            AND a.leasestartdate > '1/1/2000'
+            AND a.leasestartdate < '1/1/2030'
+            AND a.leaseenddate > '1/1/2000'
+            AND a.leaseenddate < '1/1/2030'
+            
+
+                 
+) 
+
+SELECT              P.tenantid as ResidentID , 
+                    p.leaseid , 
+                    p.livcorbupropertyidentifier , 
+                    p.propertymgmtcompanyname , 
+                    p.postalcode , 
+                    p.metrostatisticalarea , 
+                    p.city , 
+                    p.state , 
+                    p.latitude , 
+                    p.longitude , 
+                    p.assetgrade , 
+                    p.bedroomcount , 
+                    p.bathroomcount , 
+                    p.leasestartdate , 
+                    p.leaseenddate , 
+                    p.earliestmoveindate , 
+                    p.moveoutdate , 
+                    p.totalincome , 
+                    p.employer, 
+                    p.position,
+                    p.employerindustry,
+                    p.priorcity, 
+                    p.priorstate,
+                    p.dateofbirth,
+                    p.priorpostalcode , 
+                    p.leaseratetypename, 
+                    p.maxrentrate,
+		            p.fwd_city,
+		            p.fwd_state,
+		            p.fwd_zipcode,
+
+                                        CASE
+                                                            //when pm.propertyname = 'Aleo at North Glen' THEN 'Cortland MacArthur'
+                                                  WHEN (
+                                                                      p.propertyname = 'The Drexel'
+                                                            OR        p.propertyname = 'The Heights at Perimeter Center'
+                                                            OR        p.propertyname = 'The Lofts at Perimeter Center') THEN 'The Drexel Collective'
+                                                  WHEN (
+                                                                      p.propertyname = 'Mountain Gate'
+                                                            OR        p.propertyname = 'Mountain Trails') THEN 'Mountain Gate Trails'
+                                                  WHEN p.propertyname = 'Miramar' THEN 'Horizon at Miramar'
+                                                  WHEN p.propertyname = 'Citigate' THEN 'Citigate Apartments'
+                                                  WHEN p.propertyname = 'Colonnade' THEN 'Colonnade at Fletcher Hills'
+                                                  WHEN p.propertyname = 'Arium Town Center' THEN 'Timucuan Lakeside at Town Center'
+                                                  WHEN p.propertyname = 'Edgewater at the Cove' THEN 'Edgewater at The Cove'
+                                                  WHEN p.propertyname = 'Kia Ora Park' THEN 'Kia Ora'
+                                                  WHEN p.propertyname = 'Avens Point' THEN 'Montair(Avens Point)'
+                                                  WHEN p.propertyname = 'Verandahs of Brighton Bay' THEN 'Verandahs Of Brighton Bay'
+                                                  WHEN (
+                                                                      p.propertyname = 'Kaimana' 
+                                                            OR        p.propertyname = 'Makai'
+                                                            OR        p.propertyname = 'Mahana') THEN 'Kalaeloa'
+                                                  WHEN (
+                                                                      p.propertyname = 'Mirador'
+                                                            OR        p.propertyname = 'Stovall') THEN 'Mirador & Stovall at River City'
+                                                  WHEN (
+                                                                      p.propertyname = 'Casa Vera Phase I'
+                                                            OR        p.propertyname = 'Casa Vera Phase II') THEN 'Casa Vera'
+                                                  WHEN p.propertyname = 'Notting Hill' THEN 'Notting Hills'
+                                                  WHEN p.propertyname = 'Arches at Hidden Creek' THEN 'Arches At Hidden Creek'
+                                                  ELSE p.propertyname
+                                        END AS propertyname,
+                                        CASE
+                                                  WHEN (
+                                                                      p.propertyname = 'Kaimana'
+                                                            OR        p.propertyname = 'Makai'
+                                                            OR        p.propertyname = 'Mahana') THEN RIGHT(p.unitname,5)
+                                                  ELSE p.unitname
+                                        END AS unitname
+                                        ,y.*
+                                        
+                                        
+                                        
+FROM   propertyinfo P
+
+
+LEFT JOIN 
+                (
+          SELECT    rr.community_name as YS_community_name,
+                    rr.building as YS_building,
+                    CASE
+                              WHEN rr.community_name IN ('Cortland Viridian' ,
+                                                         'Mirador & Stovall at River City' ,
+                                                         'Cortland on Cherry Creek' ,
+                                                         'Arches at Hidden Creek' ,
+                                                         'Brooks Landing' ,
+                                                         'Cape House' ,
+                                                         'Columbia Trails' ,
+                                                         'Cortland Bermuda Lake' ,
+                                                         'Cortland Lake Lotus' ,
+                                                         'Cortland Mirror Lake' ,
+                                                         'Eaglewood' ,
+                                                         'River Trail' ,
+                                                         'Sierra Oaks' ,
+                                                         'Station 92' ,
+                                                         'Sterling Pointe' ,
+                                                         'The Highlands at Spectrum' ,
+                                                         'Woodland' ,
+                                                         'Woodlands West' ,
+                                                         'Arches At Hidden Creek' ) THEN Concat(rr.building,'-',rr.unit_number)
+                              ELSE rr.unit_number
+                    END AS YS_unit_number ,
+                    CAST(rr.lease_start_date as DATE) AS ys_lease_start_date,
+                    CAST(rr.lease_end_date as DATE) AS  ys_lease_end_date,
+                    LEASE_SIGNED_DATE AS YS_LEASE_SIGNED_DATE,
+                    MAX(rr.EFFECTIVE_RENT) as Effective_rent ,
+                    MAX(DL_RECORDSTARTDATEUTC) as MAX_Record,
+                    MAX(rr.RUN_DATE) as MAX_RUN_DATE
+          FROM      "DNA_SDW_PD"."LIV_YIELDSTAR"."RENTROLL" RR
+          WHERE         1=1  
+            AND rr.LEASE_START_DATE > '2000-01-01'
+            AND rr.LEASE_START_DATE < '2030-01-01'
+            AND rr.LEASE_END_DATE > '2000-01-01'
+            AND rr.LEASE_END_DATE < '2030-01-01'
+                  GROUP BY community_name,building,unit_number,lease_start_date,lease_end_date,LEASE_SIGNED_DATE
+                  
+                ) Y
+          
+          ON    1=1
+          AND   P.propertyname = y.YS_community_name
+          AND   P.unitname = y.ys_unit_number
+          and   P.leasestartdate = y.ys_lease_start_date 
+          AND   P.leaseenddate = y.ys_lease_end_date
+     
+

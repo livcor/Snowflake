@@ -1,0 +1,117 @@
+WITH lageventcalculation
+     AS (SELECT Datediff(day, Lag(ue1.eventdate)
+                                OVER (
+                                  partition BY ue1.unitid, ue1.uniteventname
+                                  ORDER BY ue1.eventdate), ue1.eventdate) AS
+                lagDays,
+                ue1.unitid,
+                ue1.uniteventname,
+                ue1.eventdate
+         FROM   unitevent_a ue1
+         WHERE  ue1.uniteventname IN ( 'Down' )
+                AND ue1.source IN (SELECT DISTINCT source
+                                   FROM   unitevent_a
+                                   WHERE  uniteventname = 'Date_unit_made_ready'
+                                  )
+        --units from OneSite
+        ),
+     eventperiods
+     AS (SELECT lec.unitid,
+                lec.uniteventname,
+                lec.eventdate               AS EventPeriodStart,
+                Lead(lec.eventdate)
+                  OVER (
+                    partition BY lec.unitid, lec.uniteventname
+                    ORDER BY lec.eventdate) EventPeriodEnd
+         FROM   lageventcalculation lec
+         WHERE  lagdays IS NULL
+                 OR lagdays > 30),
+     onesiteeventdurations
+     AS (SELECT ep.unitid,
+                ep.uniteventname,
+                Min(ue2.eventdate)                                     AS
+                EarliestEvent,
+                Max(ue2.eventdate)                                     AS
+                LatestEvent
+                ,
+                Datediff(days, Min(ue2.eventdate), Max(ue2.eventdate)) AS
+                EventDuration
+         FROM   eventperiods ep
+                LEFT JOIN unitevent_a ue2
+                       ON ue2.unitid = ep.unitid
+                          AND ue2.uniteventname = ep.uniteventname
+                          AND ue2.eventdate >= ep.eventperiodstart
+                          AND ( ue2.eventdate < ep.eventperiodend
+                                 OR ep.eventperiodend IS NULL )
+         GROUP  BY ep.unitid,
+                   ep.uniteventname,
+                   ep.eventperiodstart
+         ORDER  BY ep.unitid,
+                   ep.uniteventname,
+                   ep.eventperiodstart),
+     yardieventdurations
+     AS (SELECT unitid,
+                uniteventname,
+                downdate
+                AS
+                   EarliestEvent,
+                COALESCE(Min(nexteventdate), CURRENT_DATE)
+                AS
+                   LatestEvent,
+                Datediff(days, downdate, COALESCE(Min(nexteventdate),
+                                         CURRENT_DATE))
+                AS
+                EventDuration
+         FROM   (SELECT ue1.unitid,
+                        ue1.uniteventname,
+                        ue1.eventdate     AS DownDate,
+                        ue2.eventdate     AS NextEventDate,
+                        ue2.uniteventname AS NextEventName
+                 FROM   unitevent_a ue1
+                        LEFT JOIN unitevent_a ue2
+                               ON ue2.unitid = ue1.unitid
+                                  AND ue2.eventdate > ue1.eventdate
+                                  AND ue2.uniteventname NOT IN (
+                                      'Down', 'Available_Date', 'Date_Ready',
+                                      'Rent_Ready'
+                                                               )
+                 --unit events from alternate file
+                 WHERE  ue1.uniteventname IN ( 'Down' )
+                        AND ue1.source NOT IN (SELECT DISTINCT source
+                                               FROM   unitevent_a
+                                               WHERE
+                            uniteventname = 'Date_unit_made_ready')
+                 --units from OneSite
+                 ORDER  BY ue1.unitid,
+                           ue1.eventdate,
+                           ue2.eventdate)
+         GROUP  BY unitid,
+                   downdate,
+                   uniteventname),
+     eventdurations
+     AS (SELECT *
+         FROM   onesiteeventdurations
+         UNION
+         SELECT *
+         FROM   yardieventdurations)
+SELECT pm.propertymgmtcompanyname    AS Operator,
+       pm.propertyname               AS AssetName,
+       pm.livcorbupropertyidentifier AS BU,
+       pm.reportingstatus,
+       pm.metrostatisticalarea,
+       'Unit: '
+       || u.unitname                 AS UnitName,
+       ed.uniteventname,
+       ed.earliestevent,
+       ed.latestevent,
+       ed.eventduration
+FROM   eventdurations ed
+       LEFT JOIN unit_a u
+              ON u.unitid = ed.unitid
+       LEFT JOIN propertymapping_a pm
+              ON pm.propertyassetid = u.propertyassetid
+WHERE  pm.propertyid IS NOT NULL
+ORDER  BY operator,
+          assetname,
+          unitname,
+          earliestevent 

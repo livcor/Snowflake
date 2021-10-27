@@ -1,0 +1,19 @@
+SELECT DISTINCT PM.PropertyName,
+                PM.PropertyAssetSource,
+                LEV.LeaseEventName, 
+                LEV.Reason,
+                COUNT(DISTINCT LeaseEventSID) AS TotalEvents,
+                COUNT(DISTINCT PM.PropertyName) AS NumberProperties,
+                MIN(EventDate) AS FirstOccurred,
+                MAX(EventDate) AS LastOccurred,
+                ABS(DATEDIFF('day',MAX(EventDate),CURRENT_DATE())) AS DaysSinceLastOccurrence
+FROM LIV_ODS.LeaseEvent LEV
+JOIN LIV_ODS.Lease LS ON LS.LeaseID = LEV.LeaseID AND LS.ActiveInd = 1 AND LS.DL_IsCurrent = 1
+JOIN LIV_ODS.Unit UT ON UT.UnitID = LS.UnitID AND UT.ActiveInd = 1 AND UT.DL_IsCurrent = 1
+JOIN LIV_ODS.PropertyMapping PM ON PM.PropertyAssetID = UT.PropertyAssetID AND PM.ActiveInd = 1 AND PM.DL_IsCurrent = 1 AND PM.PortfolioCompany = 'LivCor'
+WHERE LEV.ActiveInd = 1 AND 
+      LEV.DL_IsCurrent = 1 AND 
+      --LEV.LeaseEventName NOT LIKE '%Assign%' AND LEV.LeaseEventName NOT LIKE '%Transfer%'
+      LEV.LeaseEventName = 'Eviction'
+GROUP BY 1,2,3,4
+ORDER BY 3,4,1

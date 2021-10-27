@@ -1,0 +1,58 @@
+WITH A AS 
+( 
+          SELECT    e.leasingentityeventname      AS le_leasing_event, 
+                    e.leasingentityid             AS leasingentityid, 
+                    Cast(eventdate AS DATE)       AS eventdate, 
+                    e.source                      AS le_source, 
+                    pm.propertyname               AS pm_property, 
+                    pm.propertymgmtcompanyname    AS pm_operator, 
+                    pm.livcorbupropertyidentifier AS pm_bu, 
+                    le.leadsource                 AS leadsource, 
+                CASE 
+                  WHEN (e.leasingentityeventname = 'AppliedDate'
+                          OR e.leasingentityeventname = 'Submit Application') THEN 
+                  'Date_Applied' 
+                    WHEN (e.leasingentityeventname = 'CancelDeniedDate'
+                          OR e.leasingentityeventname = 'Application Canceled') THEN 
+                  'Date_Canceled' 
+                    WHEN e.leasingentityeventname = 'Application Approved' THEN 
+                  'Date_Approved' 
+                    WHEN e.leasingentityeventname = 'Application Denied' THEN 
+                  'Date_Denied' 
+                    WHEN e.leasingentityeventname = 'Appointment' THEN 
+                  'Date_Show' 
+                  ELSE e.leasingentityeventname 
+                END                           AS event_name 
+          FROM      leasingentityevent_a e 
+          LEFT JOIN leasingentity_a le 
+          ON        e.leasingentityid = le.leasingentityid 
+          AND       le.leadsource <> '' 
+          LEFT JOIN propertymapping_a pm 
+          ON        e.propertyassetid = pm.propertyassetid 
+          AND       pm.investment <> 'Caiola' 
+          AND       pm.reportingstatus <> 'Dispo' 
+          AND       pm.unitcount > 0 
+               LEFT JOIN
+            (
+            Select Distinct
+                PrimaryLEID
+              , PrimarySourceKey
+              , RelatedLEID
+            FROM
+                LeasingEntityReltn_A
+            WHERE
+                LeasingRelationshipType = 'Parent-Child'
+                )
+                relatedle --Sub query to identify prospect records that have a parent
+                on  relatedle.RelatedLEID = le.LeasingEntityID
+          WHERE     1 = 1
+          AND       relatedle.PrimaryLEID IS NULL
+          AND       e.eventdate IS NOT NULL
+)
+
+
+SELECT *
+FROM A
+WHERE 1=1
+AND EventDate > '1/1/2021'
+AND PM_Property IS NOT NULL

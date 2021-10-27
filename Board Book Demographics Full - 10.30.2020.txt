@@ -1,0 +1,179 @@
+WITH moveins AS 
+
+// Gathers all leasingentity ids from specified move in time period from active assets
+( 
+          SELECT    l.leasingentityid , 
+                    Min(l.moveindate) AS tenantsearliestmovein 
+          FROM      propertymapping_a pm 
+          LEFT JOIN unit_a u 
+          ON        u.propertyassetid = pm.propertyassetid 
+          LEFT JOIN lease_a l 
+          ON        l.unitid = u.unitid 
+          WHERE     1=1 
+          AND       pm.reportingstatus <> 'Dispo' 
+          AND       pm.unitcount > 0 
+          AND       l.moveindate > DATEADD(year,-3,DATE_TRUNC('year',current_date()))
+          AND       l.moveindate < current_date() 
+          GROUP BY  l.leasingentityid ) ,
+
+// Gathers all prospect ids related to leasingentity ids from moveins table
+tenantprospectids AS 
+
+( 
+       SELECT relatedleid       AS prospectleid , 
+              m.leasingentityid AS tenantid 
+       FROM   "DNA_SDW_PD"."LIV_ODS"."LEASINGENTITYRELTN_A" lr1 
+       JOIN   moveins m 
+       ON     m.leasingentityid = lr1.primaryleid 
+       WHERE  lr1.leasingrelationshiptype = 'Tenant-Prospect' ) , 
+
+// Gathers all related prospect ids linked via 'Parent-Child' relationship to singular prospect id from tenantprospectids table above
+allprospectids AS 
+( 
+       SELECT prospectleid , 
+              tenantid 
+       FROM   tenantprospectids 
+       UNION 
+       SELECT relatedleid AS prospectleid , 
+              tp.tenantid 
+       FROM   "DNA_SDW_PD"."LIV_ODS"."LEASINGENTITYRELTN_A" lr2 
+       JOIN   tenantprospectids tp 
+       ON     tp.prospectleid = lr2.primaryleid 
+       WHERE  lr2.leasingrelationshiptype = 'Parent-Child' ) ,
+
+// Designates primary prospect id from allprospectids table above by selecting tenantid with largest income, brings in additional informational fields
+primarytenant AS 
+( 
+          SELECT    a.tenantid, 
+                    a.prospectleid, 
+                    le.employer, 
+                    le.position, 
+                    le.employerindustry , 
+                    le.priorcity, 
+                    le.priorstate, 
+                    le.dateofbirth, 
+                    le.priorpostalcode,
+                    le.income,
+                    Row_number() OVER ( partition BY a.tenantid ORDER BY le.income desc ) AS dup
+          FROM      allprospectids a 
+          LEFT JOIN leasingentity_a le 
+          ON        a.prospectleid = le.leasingentityid 
+          AND       le.isoccupant = '0' 
+          WHERE     le.income IS NOT NULL
+                    
+                    -- group by a.tenantid, le.position 
+)
+
+,
+
+// Sums all annual household income and groups by tenantid
+householdincome AS 
+( 
+          SELECT    a.tenantid , 
+                    Sum(12*le.income + le.employmentadditionalincome) AS totalincome 
+          FROM      allprospectids a 
+          LEFT JOIN leasingentity_a le 
+          ON        a.prospectleid = le.leasingentityid 
+          GROUP BY  a.tenantid ) , 
+
+// Gathers all current leasing information related to latest lease associated with tenant id from primarytenant table
+currentleaseinfo AS 
+( 
+          SELECT    i.tenantid, 
+                    i.totalincome, 
+                    l.* , 
+                    Row_number() OVER ( partition BY i.tenantid,i.totalincome ORDER BY l.leasestartdate DESC ) AS dup
+          FROM      householdincome i 
+          LEFT JOIN lease_a l 
+          ON        i.tenantid = l.leasingentityid ) ,
+
+
+// Brings in earliest moveindate associated with tenant from primarytenant for contextual information in final table
+mindate AS 
+( 
+         SELECT   a.tenantid, 
+                  Min(moveindate) AS earliestmoveindate 
+         FROM     currentleaseinfo A 
+         GROUP BY a.tenantid) , 
+
+// Brings in largest current rent rate associated with leaseid from currentleaseinfo table
+leaserate AS 
+( 
+          SELECT    a.leaseid, 
+                    r.leaseratetypename, 
+                    Max(r.leaserateamount) AS maxrentrate, 
+                    Max(r.ratestartdate)   AS latestratestartdate 
+                    -- Row_number() OVER ( partition BY A.leaseid ORDER BY R.leaserateamount desc ) as dup 
+          FROM      currentleaseinfo A 
+          LEFT JOIN leaserate_a R 
+          ON        a.leaseid = r.leaseid 
+          AND       r.leaseratetypename IN ('rent', 
+                                            'rnta', 
+                                            'RENT', 
+                                            'rentres', 
+                                            'cha-rent') 
+          WHERE     a.dup = 1 
+          GROUP BY  a.leaseid, 
+                    r.leaseratetypename ) ,
+
+
+// Brings everything together in final table format, adding property information from propertymapping table
+propertyinfo AS 
+( 
+          SELECT    a.tenantid , 
+                    a.leaseid , 
+                    pm.livcorbupropertyidentifier , 
+                    pm.propertyname , 
+                    pm.propertymgmtcompanyname , 
+                    pm.postalcode , 
+                    pm.metrostatisticalarea , 
+                    pm.city , 
+                    pm.state , 
+                    pm.latitude , 
+                    pm.longitude , 
+                    pm.assetgrade , 
+                    u.unitname , 
+                    u.bedroomcount , 
+                    u.bathroomcount , 
+                    a.leasestartdate , 
+                    a.leaseenddate , 
+                    mindate.earliestmoveindate , 
+                    a.moveoutdate , 
+                    a.totalincome , 
+                    ifnull(pt.employer,le.employer) as employer, 
+                    ifnull(pt.position,le.position) as position,
+                    ifnull(pt.employerindustry,le.employerindustry) as employerindustry,
+                    ifnull(pt.priorcity,le.priorcity) as priorcity, 
+                    ifnull(pt.priorstate,le.priorstate) as priorstate,
+                    ifnull(pt.dateofbirth,le.dateofbirth) as dateofbirth,
+                    ifnull(pt.priorpostalcode,le.priorpostalcode) as priorpostalcode , 
+                    lr.leaseratetypename, 
+                    lr.maxrentrate,
+		    add.city as fwd_city,
+		    add.state as fwd_state,
+		    add.zipcode as fwd_zipcode
+          FROM      currentleaseinfo a
+          LEFT JOIN mindate
+          ON        a.tenantid = mindate.tenantid 
+          LEFT JOIN unit_a u 
+          ON        a.unitid = u.unitid 
+          LEFT JOIN propertymapping_a PM 
+          ON        u.propertyassetid = pm.propertyassetid 
+          LEFT JOIN primarytenant pt 
+          ON        a.tenantid = pt.tenantid 
+          AND       pt.dup = 1 
+          LEFT JOIN leaserate lr 
+          ON        a.leaseid = lr.leaseid 
+          LEFT JOIN leasingentity_a le 
+          ON        a.tenantid = le.leasingentityid 
+	      LEFT JOIN address add
+	      ON 	    a.tenantid = add.leasingentityid
+        AND add.ACTIVEIND = 1
+        AND add.DL_ISCURRENT = 1
+          WHERE     1=1 
+          AND       a.dup = 1
+                 
+) 
+          
+SELECT *
+FROM   propertyinfo 

@@ -1,0 +1,177 @@
+WITH mark 
+     AS (SELECT pm.propertymgmtcompanyname, 
+                pm.livcorbupropertyidentifier, 
+                pm.propertyname, 
+                pm.validfrom, 
+                pm.validto, 
+                u.unitname, 
+                u.floorplan, 
+                u.squarefootage, 
+                u.bedroomcount, 
+                u.bathroomcount, 
+                l.leaseterm, 
+                l.renewallease, 
+                l.leasestartdate, 
+                l.leaseenddate, 
+                l.moveindate,
+                l.moveoutdate,
+                l.alternativerent, 
+                l.leasingentityid, 
+                l.leaseid,
+                rate.leaseratetypename,
+                rate.leaserateamount,
+                Row_number() 
+                  OVER ( 
+                    partition BY pm.livcorbupropertyidentifier, u.unitname, 
+                  l.renewallease, l.leasestartdate, l.leasingentityid, 
+                  rate.leaseratetypename 
+                    ORDER BY l.leasestartdate DESC) AS dup 
+         FROM   lease_A l
+         
+                LEFT JOIN unit_a u 
+                ON l.unitid = u.unitid
+         
+         
+                LEFT JOIN propertymapping_a pm 
+                ON u.propertyassetid = pm.propertyassetid
+         
+                AND pm.investment <> 'Caiola' 
+                AND pm.reportingstatus <> 'Dispo' 
+                AND pm.unitcount > 0 
+                
+                            
+                LEFT JOIN leaserate_a rate 
+                ON l.leaseid = rate.leaseid 
+         
+                AND rate.leaseratetypename IN ('rent','rnta', 'RENT', 'rentres', 'cha-rent')
+
+ WHERE          1=1
+                AND l.leasingentityid IS NOT NULL 
+                AND l.leasestartdate >= '2018-01-01'
+                AND l.leasestartdate <> l.leaseenddate
+                AND l.leasestartdate < l.leaseenddate
+        ), 
+     a 
+     AS (SELECT *, 
+                Row_number() 
+                  OVER ( 
+                    partition BY unitname, propertyname, leasestartdate 
+                    ORDER BY leasestartdate DESC, validfrom DESC) AS sort 
+         FROM   mark 
+         WHERE  dup = 1 --and leaseratetypename is not NULL 
+         AND LeaseStartDate IS NOT NULL
+         ORDER  BY unitname, 
+                   leasestartdate)
+                  , 
+     b 
+     AS (SELECT *, 
+                Row_number() 
+                  OVER ( 
+                    partition BY unitname, propertyname 
+                    ORDER BY leasestartdate DESC) AS grab_two 
+         FROM   a 
+         WHERE  sort = 1) ,
+c as (SELECT * 
+FROM   b 
+WHERE  grab_two IN ( 1, 2 ) ) 
+,
+FINAL AS (
+
+SELECT 
+LIVCORBUPROPERTYIDENTIFIER
+,PROPERTYNAME
+,UNITNAME
+,SQUAREFOOTAGE
+,BEDROOMCOUNT
+,BATHROOMCOUNT
+,MAX(CASE WHEN GRAB_TWO = '1' THEN FLOORPLAN END) as FLOORPLAN_1
+,MAX(CASE WHEN GRAB_TWO = '1' THEN LEASETERM END) as LEASETERM_1
+,MAX(CASE WHEN GRAB_TWO = '1' THEN LEASESTARTDATE END) as LEASESTARTDATE_1
+,MAX(CASE WHEN GRAB_TWO = '1' THEN LEASEENDDATE END) as LEASEENDDATE_1
+,MAX(CASE WHEN GRAB_TWO = '1' THEN MOVEINDATE END) as MOVEINDATE_1
+,MAX(CASE WHEN GRAB_TWO = '1' THEN MOVEOUTDATE END) as MOVEOUTDATE_1
+,MAX(CASE WHEN GRAB_TWO = '1' THEN LEASERATEAMOUNT END) as LEASERATEAMOUNT_1
+,MAX(CASE WHEN GRAB_TWO = '1' THEN ALTERNATIVERENT END) as ALTERNATIVERENT_1
+,MAX(CASE WHEN GRAB_TWO = '1' THEN LEASINGENTITYID END) as LEASINGENTITYID_1
+,MAX(CASE WHEN GRAB_TWO = '1' THEN LEASERATETYPENAME END) as LEASERATETYPENAME_1
+,MAX(CASE WHEN GRAB_TWO = '1' THEN PROPERTYMGMTCOMPANYNAME END) as PROPERTYMGMTCOMPANYNAME_1
+,MAX(CASE WHEN GRAB_TWO = '1' THEN RENEWALLEASE END) as RENEWALLEASE_1
+,MAX(CASE WHEN GRAB_TWO = '1' THEN LEASEID END) as LEASEID_1
+
+
+
+,MAX(CASE WHEN GRAB_TWO = '2' THEN FLOORPLAN END) as FLOORPLAN_2
+,MAX(CASE WHEN GRAB_TWO = '2' THEN LEASETERM END) as LEASETERM_2
+,MAX(CASE WHEN GRAB_TWO = '2' THEN LEASESTARTDATE END) as LEASESTARTDATE_2
+,MAX(CASE WHEN GRAB_TWO = '2' THEN LEASEENDDATE END) as LEASEENDDATE_2
+,MAX(CASE WHEN GRAB_TWO = '2' THEN MOVEINDATE END) as MOVEINDATE_2
+,MAX(CASE WHEN GRAB_TWO = '2' THEN MOVEOUTDATE END) as MOVEOUTDATE_2
+,MAX(CASE WHEN GRAB_TWO = '2' THEN LEASERATEAMOUNT END) as LEASERATEAMOUNT_2
+,MAX(CASE WHEN GRAB_TWO = '2' THEN ALTERNATIVERENT END) as ALTERNATIVERENT_2
+,MAX(CASE WHEN GRAB_TWO = '2' THEN LEASINGENTITYID END) as LEASINGENTITYID_2
+,MAX(CASE WHEN GRAB_TWO = '2' THEN LEASERATETYPENAME END) as LEASERATETYPENAME_2
+,MAX(CASE WHEN GRAB_TWO = '2' THEN PROPERTYMGMTCOMPANYNAME END) as PROPERTYMGMTCOMPANYNAME_2
+,MAX(CASE WHEN GRAB_TWO = '2' THEN RENEWALLEASE END) as RENEWALLEASE_2
+,MAX(CASE WHEN GRAB_TWO = '2' THEN LEASEID END) as LEASEID_2
+
+FROM C
+
+
+GROUP BY 
+LIVCORBUPROPERTYIDENTIFIER
+,PROPERTYNAME
+,UNITNAME
+,SQUAREFOOTAGE
+,BEDROOMCOUNT
+,BATHROOMCOUNT
+
+ORDER BY 
+LIVCORBUPROPERTYIDENTIFIER
+,PROPERTYNAME
+,UNITNAME
+,SQUAREFOOTAGE
+,BEDROOMCOUNT
+,BATHROOMCOUNT
+)
+,
+
+Notice_Add_1 AS (
+SELECT 
+  F.LEASEID_1,
+  MAX(L.NOTICEONDATE) as NOTICE_ON_DATE_1,
+  MAX(L.NOTICEFORDATE) as NOTICE_FOR_DATE_1
+FROM Final F
+LEFT JOIN Lease L
+  ON  L.LeaseID = F.LEASEID_1
+  AND (L.NOTICEONDATE IS NOT NULL OR L.NOTICEFORDATE IS NOT NULL) 
+  AND L.DL_ISCURRENT = 1
+GROUP BY LeaseID_1)
+
+,
+Notice_Add_2 AS (
+SELECT 
+  F.LEASEID_2,
+  MAX(L.NOTICEONDATE) as NOTICE_ON_DATE_2,
+  MAX(L.NOTICEFORDATE) as NOTICE_FOR_DATE_2
+
+FROM Final F
+LEFT JOIN Lease L
+  ON  L.LeaseID = F.LEASEID_2
+  AND (L.NOTICEONDATE IS NOT NULL OR L.NOTICEFORDATE IS NOT NULL) 
+  AND L.DL_ISCURRENT = 1
+GROUP BY LeaseID_2
+)
+
+,FINAL_2 as (
+SELECT F.*,N1.NOTICE_ON_DATE_1,N1.NOTICE_FOR_DATE_1,N2.NOTICE_ON_DATE_2,N2.NOTICE_FOR_DATE_2
+FROM Final F
+LEFT JOIN Notice_Add_1 N1
+ON F.LeaseID_1 = N1.LeaseID_1
+LEFT JOIN Notice_Add_2 N2
+ON F.LeaseID_2 = N2.LeaseID_2
+WHERE 1=1
+)
+
+
+SELECT *
+FROM FInal_2

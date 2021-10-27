@@ -1,0 +1,9 @@
+SELECT pm.PropertyName, u.UnitName, aumo.MinDate As MoveOut, aund.MinDate As NoticeFor, auno.MinDate As NoticeOn
+FROM PropertyMapping_A pm
+LEFT JOIN Unit_A u on u.PropertyAssetID = pm.PropertyAssetID
+LEFT JOIN (SELECT DISTINCT UnitID, MIN(MOVEOUTDATE) As MinDate FROM Lease_A WHERE MOVEOUTDATE >= '2020-01-01' AND MOVEOUTDATE < '2021-02-01' GROUP BY UnitID) aumo on aumo.UnitID = u.UnitID
+LEFT JOIN (SELECT DISTINCT UnitID, MIN(NOTICEFORDATE) As MinDate FROM Lease_A WHERE NOTICEFORDATE >= '2020-01-01' AND NOTICEFORDATE < '2021-02-01' GROUP BY UnitID) aund on aund.UnitID = u.UnitID
+LEFT JOIN (SELECT DISTINCT UnitID, MIN(NOTICEONDATE) As MinDate FROM Lease_A WHERE NOTICEONDATE >= '2019-01-01' AND NOTICEONDATE < '2021-02-01' GROUP BY UnitID) auno on auno.UnitID = u.UnitID
+WHERE pm.PropertyName = 'The Gardens'
+AND  (aumo.MinDate IS NOT NULL OR aund.MinDate IS NOT NULL)
+ORDER BY NoticeFor
